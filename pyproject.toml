@@ -1,0 +1,18 @@
+[project]
+name = "figma-cli"
+version = "0.1.0"
+description = "Figma MCP CLI - shell-first Figma design-to-code bridge"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+figma = "figma_cli.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
