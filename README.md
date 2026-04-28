@@ -40,13 +40,16 @@ figma-cli refresh
 
 ## 后端
 
+优先级: 本机 Figma Desktop MCP → npx → 远程云
+
 | 后端 | 配置 | 说明 |
 |---|---|---|
-| Desktop MCP | 默认 | 需要 Figma 桌面端，免费账户可用 |
-| Remote MCP | `FIGMA_BACKEND=remote` + `FIGMA_API_KEY` | 有 Figma API key |
+| 本机 MCP | 默认 (http://127.0.0.1:3845/mcp) | 免费账户可用，无需 API key |
+| 远程云 | `FIGMA_MCP_URL=https://mcp.figma.com/mcp` + `FIGMA_API_KEY` | 有 Figma API key |
 
 ```bash
-export FIGMA_BACKEND=remote
+# 远程云 MCP
+export FIGMA_MCP_URL=https://mcp.figma.com/mcp
 export FIGMA_API_KEY=figd_xxxxx
 ```
 
