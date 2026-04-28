@@ -14,7 +14,7 @@ SKILL_TARGETS=(
   "${HOME}/.claude/skills/figma"
   "${HOME}/.agent/skills/figma"
   "${HOME}/.agents/skills/figma"
-  "${HOME}/.cc-switch/skills/figma"
+  "${HOME}/.agent/skills/figma"
 )
 
 for target in "${SKILL_TARGETS[@]}"; do

@@ -4,7 +4,7 @@ set -euo pipefail
 # 用法: curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 REPO_URL="https://github.com/hzy9738/figma-mcp-skill.git"
-SKILL_DST_DIR="${HOME}/.cc-switch/skills/figma"
+SKILL_DST_DIR="${HOME}/.agent/skills/figma"
 LOCAL_BIN_DIR="${HOME}/.local/bin"
 WRAPPER_PATH="${LOCAL_BIN_DIR}/figma"
 UNAME_S="$(uname -s)"
@@ -17,7 +17,20 @@ case "${UNAME_S}" in
     ;;
 esac
 
-for required_cmd in bash python3 git; do
+# 探测 python3 命令（兼容只有 python 的系统）
+PYTHON_BIN=""
+for candidate in python3 python; do
+  if command -v "${candidate}" >/dev/null 2>&1; then
+    PYTHON_BIN="${candidate}"
+    break
+  fi
+done
+if [[ -z "${PYTHON_BIN}" ]]; then
+  echo "错误: 未找到 python3 或 python，请先安装 Python ≥3.10" >&2
+  exit 1
+fi
+
+for required_cmd in bash git; do
   if ! command -v "${required_cmd}" >/dev/null 2>&1; then
     echo "缺少必需命令: ${required_cmd}" >&2
     exit 1
@@ -26,7 +39,6 @@ done
 
 # 判断是管道执行还是本地脚本执行
 if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ -f "${BASH_SOURCE[0]}" ]]; then
-  # 本地脚本执行：从脚本所在目录复制
   _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   SKILL_SRC_DIR="$(cd "${_script_dir}/.." && pwd)"
   echo "从本地源安装: ${SKILL_SRC_DIR}"
@@ -39,24 +51,20 @@ if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ -
     cp -a "${SKILL_SRC_DIR}/." "${SKILL_DST_DIR}/"
   fi
 else
-  # 管道执行：git clone
   echo "从 GitHub 克隆: ${REPO_URL}"
   mkdir -p "$(dirname "${SKILL_DST_DIR}")"
   rm -rf "${SKILL_DST_DIR}"
   git clone --depth 1 "${REPO_URL}" "${SKILL_DST_DIR}"
 fi
 
-# pip 安装 CLI
+# 创建 wrapper 脚本（不依赖 pip install）
 echo "安装 figma CLI ..."
-python3 -m pip install --user -e "${SKILL_DST_DIR}" 2>&1 || {
-  echo "pip 安装失败，使用 wrapper 模式 ..."
-  mkdir -p "${LOCAL_BIN_DIR}"
-  cat > "${WRAPPER_PATH}" <<'WRAPPER_EOF'
+mkdir -p "${LOCAL_BIN_DIR}"
+cat > "${WRAPPER_PATH}" <<WRAPPER_EOF
 #!/usr/bin/env bash
-exec python3 "${HOME}/.cc-switch/skills/figma/src/figma_cli/cli.py" "$@"
+exec "${PYTHON_BIN}" "${SKILL_DST_DIR}/src/figma_cli/cli.py" "\$@"
 WRAPPER_EOF
-  chmod +x "${WRAPPER_PATH}"
-}
+chmod +x "${WRAPPER_PATH}"
 
 # 确保 PATH 中包含 ~/.local/bin
 SHELL_NAME="$(basename "${SHELL:-bash}")"
