@@ -330,15 +330,15 @@ class StdioTransport(MCPTransport):
 
 @dataclass
 class HttpTransport(MCPTransport):
-    """基于 HTTP POST 的 MCP 传输。
+    """MCP Streamable HTTP 传输（Figma Desktop / Remote MCP）。
 
-    通过 HTTP POST 发送 JSON-RPC 请求，适用于：
-    - Figma Remote MCP (https://mcp.figma.com/mcp)
-    - Figma Desktop MCP (http://127.0.0.1:3845/mcp)
-    - 以及任意通过 FIGMA_MCP_URL 指定的端点
+    遵循 MCP Streamable HTTP 规范：
+    1. GET 建立 SSE 会话，获取 Mcp-Session-Id
+    2. POST JSON-RPC 请求（携带 session id）
     """
 
     _client: Any = field(default=None, init=False)
+    _session_id: str | None = field(default=None, init=False)
 
     @property
     def base_url(self) -> str:
@@ -351,11 +351,30 @@ class HttpTransport(MCPTransport):
             self._client = httpx.Client(timeout=httpx.Timeout(60.0), trust_env=False)
         return self._client
 
-    def _build_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        }
+    def _ensure_session(self) -> str:
+        """GET 建立 SSE 会话，从响应头获取 session ID。"""
+        if self._session_id is not None:
+            return self._session_id
+
+        client = self._ensure_client()
+        try:
+            resp = client.get(
+                self.base_url,
+                headers={"Accept": "text/event-stream", **self._auth_headers()},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ToolError(f"SSE 会话建立失败 ({self.base_url}): {exc}")
+
+        sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+        if sid:
+            self._session_id = sid
+            return sid
+
+        raise ToolError(f"未从响应头获取 Mcp-Session-Id，headers={dict(resp.headers)}")
+
+    def _auth_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
         api_key = os.environ.get(ENV_FIGMA_API_KEY)
         oauth_token = os.environ.get(ENV_FIGMA_OAUTH_TOKEN)
         if api_key:
@@ -364,7 +383,18 @@ class HttpTransport(MCPTransport):
             headers["Authorization"] = f"Bearer {oauth_token}"
         return headers
 
+    def _build_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+        headers.update(self._auth_headers())
+        return headers
+
     def send_request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        self._ensure_session()
         client = self._ensure_client()
         request_id = self.next_id()
 
@@ -382,30 +412,11 @@ class HttpTransport(MCPTransport):
         except httpx.HTTPError as exc:
             raise ToolError(f"MCP HTTP 请求失败 ({self.base_url}): {exc}")
 
-        # 处理可能的响应格式
-        content_type = resp.headers.get("content-type", "")
-        if "text/event-stream" in content_type:
-            # SSE 响应：从事件流中提取 JSON-RPC 响应
-            for line in resp.text.splitlines():
-                line = line.strip()
-                if line.startswith("data:"):
-                    data_str = line[5:].strip()
-                    if data_str:
-                        try:
-                            data = json.loads(data_str)
-                            if data.get("id") == request_id:
-                                if "error" in data:
-                                    err = data["error"]
-                                    raise ToolError(
-                                        f"MCP 错误 [{err.get('code', '?')}]: "
-                                        f"{err.get('message', str(err))}"
-                                    )
-                                return data.get("result", {})
-                        except json.JSONDecodeError:
-                            continue
-            raise ToolError("SSE 响应中未找到对应请求的 JSON-RPC 结果")
+        # 解析响应
+        ct = resp.headers.get("content-type", "")
+        if "text/event-stream" in ct:
+            return self._parse_sse_response(resp.text, request_id)
 
-        # 普通 JSON 响应
         try:
             data = resp.json()
         except json.JSONDecodeError:
@@ -417,7 +428,29 @@ class HttpTransport(MCPTransport):
 
         return data.get("result", {})
 
+    def _parse_sse_response(self, body: str, request_id: int) -> dict[str, Any]:
+        for line in body.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                data_str = line[5:].strip()
+                if not data_str:
+                    continue
+                try:
+                    data = json.loads(data_str)
+                    if data.get("id") == request_id:
+                        if "error" in data:
+                            err = data["error"]
+                            raise ToolError(
+                                f"MCP 错误 [{err.get('code', '?')}]: "
+                                f"{err.get('message', str(err))}"
+                            )
+                        return data.get("result", {})
+                except json.JSONDecodeError:
+                    continue
+        raise ToolError("SSE 响应中未找到对应请求的 JSON-RPC 结果")
+
     def _send_notification(self, method: str, params: dict[str, Any]) -> None:
+        self._ensure_session()
         client = self._ensure_client()
         notification = {
             "jsonrpc": "2.0",
@@ -428,7 +461,7 @@ class HttpTransport(MCPTransport):
         try:
             client.post(self.base_url, content=payload, headers=self._build_headers())
         except httpx.HTTPError:
-            pass  # 通知丢失不致命
+            pass
 
     def close(self) -> None:
         if self._client is not None:
