@@ -352,7 +352,7 @@ class HttpTransport(MCPTransport):
         return self._client
 
     def _ensure_session(self) -> str:
-        """GET 建立 SSE 会话，从响应头获取 session ID。"""
+        """尝试 GET 建立 SSE 会话；失败则回退到直接 POST（无需 session ID）。"""
         if self._session_id is not None:
             return self._session_id
 
@@ -363,15 +363,16 @@ class HttpTransport(MCPTransport):
                 headers={"Accept": "text/event-stream", **self._auth_headers()},
             )
             resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise ToolError(f"SSE 会话建立失败 ({self.base_url}): {exc}")
+            sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+            if sid:
+                self._session_id = sid
+                return sid
+        except httpx.HTTPError:
+            pass  # GET 失败，继续尝试直接 POST
 
-        sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
-        if sid:
-            self._session_id = sid
-            return sid
-
-        raise ToolError(f"未从响应头获取 Mcp-Session-Id，headers={dict(resp.headers)}")
+        # 无法建立 SSE 会话，标记为无需 session（直接 POST 模式）
+        self._session_id = ""
+        return ""
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -388,7 +389,7 @@ class HttpTransport(MCPTransport):
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
-        if self._session_id:
+        if self._session_id:  # 非空才加
             headers["Mcp-Session-Id"] = self._session_id
         headers.update(self._auth_headers())
         return headers
@@ -409,6 +410,11 @@ class HttpTransport(MCPTransport):
         try:
             resp = client.post(self.base_url, content=payload, headers=self._build_headers())
             resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ToolError(
+                f"MCP HTTP 请求失败 ({self.base_url}): {exc} "
+                f"body={exc.response.text[:300]}"
+            )
         except httpx.HTTPError as exc:
             raise ToolError(f"MCP HTTP 请求失败 ({self.base_url}): {exc}")
 
