@@ -4,7 +4,7 @@ set -euo pipefail
 # 用法: curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 REPO_URL="https://github.com/hzy9738/figma-mcp-skill.git"
-SKILL_DST_DIR="${HOME}/.agent/skills/figma"
+SKILL_DST_DIR="${HOME}/.agents/skills/figma-cli"
 LOCAL_BIN_DIR="${HOME}/.local/bin"
 WRAPPER_PATH="${LOCAL_BIN_DIR}/figma-cli"
 UNAME_S="$(uname -s)"

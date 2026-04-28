@@ -12,9 +12,9 @@ echo ""
 # 目标目录列表
 SKILL_TARGETS=(
   "${HOME}/.claude/skills/figma"
-  "${HOME}/.agent/skills/figma"
-  "${HOME}/.agents/skills/figma"
-  "${HOME}/.agent/skills/figma"
+  "${HOME}/.agents/skills/figma-cli"
+  "${HOME}/.agents/skills/figma-cli"
+  "${HOME}/.agents/skills/figma-cli"
 )
 
 for target in "${SKILL_TARGETS[@]}"; do
