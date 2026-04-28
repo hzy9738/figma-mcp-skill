@@ -7,7 +7,7 @@ Shell-first 的 Figma 设计稿到代码桥梁。通过 `figma` CLI 命令调用
 
 ```bash
 # 一行安装
-curl -fsSL https://raw.githubusercontent.com/<repo>/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 # 或 pip 安装
 pip install figma-cli
