@@ -384,47 +384,71 @@ class HttpTransport(MCPTransport):
                         print(f"[debug] GET {sse_url} → {resp.status_code}", file=sys.stderr)
                         print(f"[debug]   响应头: {dict(resp.headers)}", file=sys.stderr)
 
-                    if resp.is_success:
-                        sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
-                        if sid:
-                            self._session_id = sid
-                            if self.debug:
-                                print(f"[debug]   获取到 Session ID: {sid}", file=sys.stderr)
-                            return sid
+                    if not resp.is_success:
+                        continue
 
-                        # 读取前几行 SSE 事件（服务器可能持续流式输出，只读头部）
-                        body_lines: list[str] = []
-                        for i, line in enumerate(resp.iter_lines()):
-                            body_lines.append(line)
-                            if i > 50:
-                                break
-                        body = "\n".join(body_lines)
+                    # 检查 response header 中的 session ID
+                    sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
 
+                    # 读取前几行 SSE 事件
+                    body_lines: list[str] = []
+                    for i, line in enumerate(resp.iter_lines()):
+                        body_lines.append(line)
+                        if i > 50:
+                            break
+                    body = "\n".join(body_lines)
+
+                    if self.debug:
+                        print(f"[debug]   SSE 前几行: {body[:800]}", file=sys.stderr)
+
+                    # 解析 SSE endpoint 事件 → 获取 POST 用的消息 URL
+                    raw_endpoint = self._parse_sse_endpoint(body)
+                    if raw_endpoint:
+                        self._endpoint_url = self._resolve_url(raw_endpoint)
                         if self.debug:
-                            print(f"[debug]   SSE 前几行: {body[:500]}", file=sys.stderr)
+                            print(f"[debug]   SSE endpoint → POST URL: {self._endpoint_url}", file=sys.stderr)
+                        # 从 endpoint URL 中提取 session id
+                        if not sid:
+                            sid = self._extract_session_from_url(self._endpoint_url)
 
-                        endpoint_url = self._parse_sse_endpoint(body)
-                        if endpoint_url:
-                            self._endpoint_url = endpoint_url
-                            if self.debug:
-                                print(f"[debug]   SSE endpoint 事件: {endpoint_url}", file=sys.stderr)
-
+                    # 从 SSE 事件数据中查找 session
+                    if not sid:
                         sid = self._parse_sse_session_id(body)
-                        if sid:
-                            self._session_id = sid
-                            if self.debug:
-                                print(f"[debug]   从 SSE 获取到 Session ID: {sid}", file=sys.stderr)
-                            return sid
+
+                    if sid:
+                        self._session_id = sid
+                        if self.debug:
+                            print(f"[debug]   会话 ID: {sid}", file=sys.stderr)
+                        return sid
             except httpx.HTTPError as exc:
                 if self.debug:
                     print(f"[debug] GET {sse_url} 失败: {exc}", file=sys.stderr)
                 continue
 
-        # 无会话模式：直接 POST，不携带 Mcp-Session-Id
+        # 无会话模式
         self._session_id = ""
         if self.debug:
             print("[debug] 未获取到 SSE 会话，使用无会话模式直接 POST", file=sys.stderr)
         return ""
+
+    def _resolve_url(self, url: str) -> str:
+        """将相对 URL 解析为绝对 URL。"""
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        # 相对路径：基于 base_url 解析
+        from urllib.parse import urljoin
+        return urljoin(self.base_url, url)
+
+    def _extract_session_from_url(self, url: str) -> str | None:
+        """从 URL 查询参数中提取 sessionId。"""
+        from urllib.parse import urlparse, parse_qs
+        try:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            sid = params.get("sessionId", [None])[0] or params.get("session_id", [None])[0]
+            return sid
+        except Exception:
+            return None
 
     def _parse_sse_endpoint(self, body: str) -> str | None:
         """从 SSE 响应中解析 endpoint 事件。"""
@@ -511,21 +535,61 @@ class HttpTransport(MCPTransport):
         except httpx.HTTPError as exc:
             raise ToolError(f"MCP HTTP 请求失败 ({post_url}): {exc}")
 
-        # 解析响应
+        # 尝试从 POST 响应直接读取 JSON-RPC 结果
         ct = resp.headers.get("content-type", "")
         if "text/event-stream" in ct:
             return self._parse_sse_response(resp.text, request_id)
 
-        try:
-            data = resp.json()
-        except json.JSONDecodeError:
-            raise ToolError(f"MCP 返回非 JSON 响应: {resp.text[:200]}")
+        if resp.text.strip():
+            try:
+                data = resp.json()
+                if "error" in data:
+                    err = data["error"]
+                    raise ToolError(f"MCP 错误 [{err.get('code', '?')}]: {err.get('message', str(err))}")
+                if "result" in data:
+                    return data.get("result", {})
+            except json.JSONDecodeError:
+                pass  # 响应不是 JSON，走 SSE 回退
 
-        if "error" in data:
-            err = data["error"]
-            raise ToolError(f"MCP 错误 [{err.get('code', '?')}]: {err.get('message', str(err))}")
+        # POST 返回空或 202 → 尝试从 SSE 流读取响应
+        if self._endpoint_url or self._session_id:
+            sse_url = self.base_url
+            if self.debug:
+                print(f"[debug] POST 响应为空/非 JSON，尝试从 SSE 读取响应 ({sse_url})", file=sys.stderr)
+            try:
+                return self._read_sse_response(sse_url, request_id)
+            except ToolError:
+                raise
+            except Exception as exc:
+                raise ToolError(f"从 SSE 读取响应失败: {exc}")
 
-        return data.get("result", {})
+        raise ToolError(f"MCP 返回非 JSON 响应: {resp.text[:200]}")
+
+    def _read_sse_response(self, sse_url: str, request_id: int) -> dict[str, Any]:
+        """重新连接 SSE 端点读取指定请求的 JSON-RPC 响应。"""
+        client = self._ensure_client()
+        hdr = {"Accept": "text/event-stream", **self._auth_headers()}
+        if self._session_id and self._session_id != "":
+            hdr["Mcp-Session-Id"] = self._session_id
+
+        if self.debug:
+            print(f"[debug] GET {sse_url} (读取 SSE 响应)", file=sys.stderr)
+
+        with client.stream("GET", sse_url, headers=hdr) as resp:
+            if self.debug:
+                print(f"[debug]   SSE 响应状态: {resp.status_code}", file=sys.stderr)
+
+            body_lines: list[str] = []
+            for i, line in enumerate(resp.iter_lines()):
+                body_lines.append(line)
+                if i > 100:
+                    break
+            body = "\n".join(body_lines)
+
+            if self.debug:
+                print(f"[debug]   SSE 响应体: {body[:800]}", file=sys.stderr)
+
+        return self._parse_sse_response(body, request_id)
 
     def _parse_sse_response(self, body: str, request_id: int) -> dict[str, Any]:
         for line in body.splitlines():
