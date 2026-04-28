@@ -352,7 +352,10 @@ class HttpTransport(MCPTransport):
         return self._client
 
     def _build_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {"Content-Type": "application/json"}
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
         api_key = os.environ.get(ENV_FIGMA_API_KEY)
         oauth_token = os.environ.get(ENV_FIGMA_OAUTH_TOKEN)
         if api_key:
