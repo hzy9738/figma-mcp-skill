@@ -167,6 +167,7 @@ def find_npx_bin() -> str:
 class MCPTransport:
     """MCP 传输抽象基类。"""
     backend: str
+    debug: bool = field(default=False)
     _request_id: int = field(default=0, init=False)
 
     def next_id(self) -> int:
@@ -180,15 +181,33 @@ class MCPTransport:
         pass
 
     def initialize(self) -> dict[str, Any]:
-        """MCP 握手: initialize → initialized notification。"""
-        result = self.send_request("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": APP_NAME, "version": VERSION},
-        })
-        # 发送 initialized 通知（无 id 的消息）
-        self._send_notification("notifications/initialized", {})
-        return result
+        """MCP 握手: initialize → initialized notification。
+        尝试多种协议版本，兼容不同版本的 MCP 服务器。"""
+        protocol_versions = ["2024-11-05", "2025-03-26", "2025-06-18"]
+        last_error: Exception | None = None
+
+        for pv in protocol_versions:
+            try:
+                if self.debug:
+                    print(f"[debug] 尝试 initialize (protocolVersion={pv}) ...", file=sys.stderr)
+                result = self.send_request("initialize", {
+                    "protocolVersion": pv,
+                    "capabilities": {},
+                    "clientInfo": {"name": APP_NAME, "version": VERSION},
+                })
+                if self.debug:
+                    print(f"[debug] initialize 成功 (protocolVersion={pv})", file=sys.stderr)
+                self._send_notification("notifications/initialized", {})
+                return result
+            except ToolError as exc:
+                last_error = exc
+                if self.debug:
+                    print(f"[debug] initialize 失败 ({pv}): {exc}", file=sys.stderr)
+                if "Invalid request body" in str(exc) or "initialize" in str(exc).lower():
+                    continue
+                raise
+
+        raise last_error or ToolError("initialize 失败: 所有协议版本均被拒绝")
 
     def list_tools(self) -> list[dict[str, Any]]:
         """获取服务器可用工具列表。"""
@@ -494,6 +513,7 @@ class HttpTransport(MCPTransport):
         headers: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
+            "Origin": "http://localhost",
         }
         if self._session_id:  # 非空才加
             headers["Mcp-Session-Id"] = self._session_id
@@ -506,22 +526,21 @@ class HttpTransport(MCPTransport):
         request_id = self.next_id()
         post_url = self._post_url
 
-        request = {
+        request_body = {
             "jsonrpc": "2.0",
             "id": request_id,
             "method": method,
             "params": params or {},
         }
-        payload = json.dumps(request, ensure_ascii=False)
         headers = self._build_headers()
 
         if self.debug:
             print(f"[debug] POST {post_url}", file=sys.stderr)
             print(f"[debug]   请求头: {headers}", file=sys.stderr)
-            print(f"[debug]   请求体: {payload[:500]}", file=sys.stderr)
+            print(f"[debug]   请求体: {json.dumps(request_body, ensure_ascii=False)[:500]}", file=sys.stderr)
 
         try:
-            resp = client.post(post_url, content=payload, headers=headers)
+            resp = client.post(post_url, json=request_body, headers=headers)
             if self.debug:
                 print(f"[debug]   响应状态: {resp.status_code}", file=sys.stderr)
                 print(f"[debug]   响应头: {dict(resp.headers)}", file=sys.stderr)
@@ -637,6 +656,7 @@ def create_transport(backend: str, image_dir: str | None = None, debug: bool = F
     if backend == "desktop":
         return StdioTransport(
             backend="desktop",
+            debug=debug,
             image_dir=image_dir,
         )
     elif backend == "remote":
@@ -738,21 +758,8 @@ def _get_transport(args: argparse.Namespace) -> MCPTransport:
     debug = getattr(args, "debug", False)
     transport = create_transport(backend, debug=debug)
 
-    # 判断是否为本地 Figma Desktop MCP（直接 HTTP，服务器内部已初始化）
-    is_local_desktop_http = (
-        backend == "remote"
-        and os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL) == DEFAULT_MCP_URL
-        and _check_local_mcp()
-    )
-
-    if is_local_desktop_http:
-        # 本地 Figma Desktop MCP：跳过 initialize 和 tools/list，直接尝试实际调用
-        # Figma Desktop MCP 服务器已内部初始化，不接受外部 initialize 请求
-        if debug:
-            print("[debug] 本地 Figma Desktop MCP，跳过握手，直接准备工具调用", file=sys.stderr)
-        return transport
-
     # 标准 MCP 握手: initialize → initialized → tools/list
+    # initialize 方法内部会自动尝试多种协议版本
     try:
         transport.initialize()
     except ToolError as exc:
@@ -760,13 +767,13 @@ def _get_transport(args: argparse.Namespace) -> MCPTransport:
         if backend == "desktop":
             raise ToolError(
                 f"Figma Desktop MCP 启动失败: {exc}\n"
-                f"请确保 Node.js 已安装且设置了 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN。\n"
-                f"或如果 Figma Desktop 客户端已开启，本机 MCP 应自动可用。"
+                f"请确保 Node.js 已安装且设置了 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN。"
             )
         else:
             raise ToolError(
-                f"Figma Remote MCP 连接失败: {exc}\n"
-                f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
+                f"Figma MCP 连接失败: {exc}\n"
+                f"如果使用远程云 MCP，请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。\n"
+                f"如果使用本机 Figma Desktop MCP，请确保 Figma 桌面端已开启。"
             )
 
     try:
