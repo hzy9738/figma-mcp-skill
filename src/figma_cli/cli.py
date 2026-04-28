@@ -101,12 +101,12 @@ def parse_figma_url(url: str) -> tuple[str, str | None]:
 
 
 def _check_local_mcp() -> bool:
-    """检查本地 Figma Desktop MCP 端点是否可用。"""
+    """检查本地 Figma Desktop MCP 端点是否可达（绕过系统代理）。"""
     if not HAS_HTTPX:
         return False
     try:
-        r = httpx.get(DEFAULT_MCP_URL, timeout=2.0)
-        r.raise_for_status()
+        with httpx.Client(trust_env=False) as client:
+            client.get(DEFAULT_MCP_URL, timeout=2.0)
         return True
     except Exception:
         return False
@@ -348,7 +348,7 @@ class HttpTransport(MCPTransport):
         if not HAS_HTTPX:
             raise ToolError("remote 后端需要 httpx 库: pip install httpx")
         if self._client is None:
-            self._client = httpx.Client(timeout=httpx.Timeout(60.0))
+            self._client = httpx.Client(timeout=httpx.Timeout(60.0), trust_env=False)
         return self._client
 
     def _build_headers(self) -> dict[str, str]:
@@ -672,11 +672,11 @@ def command_self_check(args: argparse.Namespace) -> int:
 
     # 检查本地 Figma Desktop MCP 端点
     if HAS_HTTPX:
-        local_url = "http://127.0.0.1:3845/mcp"
         try:
-            r = httpx.get(local_url, timeout=2.0)
+            with httpx.Client(trust_env=False) as c:
+                c.get(DEFAULT_MCP_URL, timeout=2.0)
             payload["desktop_mcp_local"] = True
-            payload["desktop_mcp_url"] = local_url
+            payload["desktop_mcp_url"] = DEFAULT_MCP_URL
         except Exception:
             payload["desktop_mcp_local"] = False
 
