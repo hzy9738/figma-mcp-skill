@@ -1,29 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Figma CLI 安装脚本
-# 用法: curl -fsSL <url> | bash
+# 用法: curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_SRC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_URL="https://github.com/hzy9738/figma-mcp-skill.git"
 SKILL_DST_DIR="${HOME}/.cc-switch/skills/figma"
 LOCAL_BIN_DIR="${HOME}/.local/bin"
 WRAPPER_PATH="${LOCAL_BIN_DIR}/figma"
 UNAME_S="$(uname -s)"
-
-copy_tree() {
-  local src_dir="$1"
-  local dst_dir="$2"
-
-  rm -rf "${dst_dir}"
-  mkdir -p "${dst_dir}"
-
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete "${src_dir}/" "${dst_dir}/"
-    return
-  fi
-
-  cp -a "${src_dir}/." "${dst_dir}/"
-}
 
 case "${UNAME_S}" in
   Darwin|Linux) ;;
@@ -33,20 +17,39 @@ case "${UNAME_S}" in
     ;;
 esac
 
-for required_cmd in bash python3; do
+for required_cmd in bash python3 git; do
   if ! command -v "${required_cmd}" >/dev/null 2>&1; then
     echo "缺少必需命令: ${required_cmd}" >&2
     exit 1
   fi
 done
 
-mkdir -p "${HOME}/.cc-switch/skills"
-copy_tree "${SKILL_SRC_DIR}" "${SKILL_DST_DIR}"
+# 判断是管道执行还是本地脚本执行
+if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ -f "${BASH_SOURCE[0]}" ]]; then
+  # 本地脚本执行：从脚本所在目录复制
+  _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  SKILL_SRC_DIR="$(cd "${_script_dir}/.." && pwd)"
+  echo "从本地源安装: ${SKILL_SRC_DIR}"
+
+  mkdir -p "$(dirname "${SKILL_DST_DIR}")"
+  rm -rf "${SKILL_DST_DIR}"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "${SKILL_SRC_DIR}/" "${SKILL_DST_DIR}/"
+  else
+    cp -a "${SKILL_SRC_DIR}/." "${SKILL_DST_DIR}/"
+  fi
+else
+  # 管道执行：git clone
+  echo "从 GitHub 克隆: ${REPO_URL}"
+  mkdir -p "$(dirname "${SKILL_DST_DIR}")"
+  rm -rf "${SKILL_DST_DIR}"
+  git clone --depth 1 "${REPO_URL}" "${SKILL_DST_DIR}"
+fi
 
 # pip 安装 CLI
 echo "安装 figma CLI ..."
 python3 -m pip install --user -e "${SKILL_DST_DIR}" 2>&1 || {
-  echo "pip 安装失败，尝试使用 wrapper 模式 ..."
+  echo "pip 安装失败，使用 wrapper 模式 ..."
   mkdir -p "${LOCAL_BIN_DIR}"
   cat > "${WRAPPER_PATH}" <<'WRAPPER_EOF'
 #!/usr/bin/env bash
