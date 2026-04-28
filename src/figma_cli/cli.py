@@ -113,13 +113,20 @@ def _check_local_mcp() -> bool:
 
 
 def resolve_backend(preferred: str | None = None) -> str:
-    """解析 Figma MCP 后端模式。auto 优先级: npx > 本地 Desktop HTTP > 远程云。"""
+    """解析 Figma MCP 后端模式。auto 优先级: 本机 Desktop MCP (无需密钥) > npx (需密钥) > 远程云 (需密钥)。"""
     backend = preferred or os.environ.get(ENV_FIGMA_BACKEND, "auto")
 
     if backend == "auto":
-        # 1. 优先 npx figma-developer-mcp（最可靠的 Figma Desktop 通信方式）
-        npx_available = shutil.which("npx") is not None
-        if npx_available:
+        has_credentials = bool(
+            os.environ.get(ENV_FIGMA_API_KEY) or os.environ.get(ENV_FIGMA_OAUTH_TOKEN)
+        )
+
+        # 1. 优先本机 Figma Desktop MCP (http://127.0.0.1:3845/mcp) — 无需 API key
+        if _check_local_mcp():
+            return "remote"
+
+        # 2. npx figma-developer-mcp — 需要 API key 或 OAuth token
+        if shutil.which("npx") and has_credentials:
             try:
                 proc = subprocess.run(
                     ["npx", DEFAULT_FIGMA_MCP_PACKAGE, "--version"],
@@ -130,15 +137,11 @@ def resolve_backend(preferred: str | None = None) -> str:
             except Exception:
                 pass
 
-        # 2. 其次尝试本机 Figma Desktop MCP 直接 HTTP
-        if _check_local_mcp():
+        # 3. 远程云 MCP — 需要 API key
+        if has_credentials:
             return "remote"
 
-        # 3. 远程云 MCP（需要 API key）
-        if os.environ.get(ENV_FIGMA_API_KEY) or os.environ.get(ENV_FIGMA_OAUTH_TOKEN):
-            return "remote"
-
-        # 4. 最后尝试 desktop（可能失败但会给出明确错误提示）
+        # 4. 最后尝试 desktop（可能因无密钥失败，但给出明确错误）
         return "desktop"
 
     if backend in ("desktop", "remote"):
@@ -371,34 +374,42 @@ class HttpTransport(MCPTransport):
         client = self._ensure_client()
         auth = self._auth_headers()
 
-        # 尝试 GET 建立 SSE 会话（Streamable HTTP 规范）
+        # 尝试 GET 建立 SSE 会话（使用 stream 模式避免挂起在 SSE 长连接）
         for sse_path in ["/sse", ""]:
             sse_url = f"{self.base_url.rstrip('/')}{sse_path}" if sse_path else self.base_url
             try:
                 hdr = {"Accept": "text/event-stream", **auth}
-                resp = client.get(sse_url, headers=hdr)
-                if self.debug:
-                    print(f"[debug] GET {sse_url} → {resp.status_code}", file=sys.stderr)
-                    print(f"[debug]   响应头: {dict(resp.headers)}", file=sys.stderr)
+                with client.stream("GET", sse_url, headers=hdr) as resp:
+                    if self.debug:
+                        print(f"[debug] GET {sse_url} → {resp.status_code}", file=sys.stderr)
+                        print(f"[debug]   响应头: {dict(resp.headers)}", file=sys.stderr)
 
-                if resp.is_success:
-                    sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
-                    if sid:
-                        self._session_id = sid
+                    if resp.is_success:
+                        sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+                        if sid:
+                            self._session_id = sid
+                            if self.debug:
+                                print(f"[debug]   获取到 Session ID: {sid}", file=sys.stderr)
+                            return sid
+
+                        # 读取前几行 SSE 事件（服务器可能持续流式输出，只读头部）
+                        body_lines: list[str] = []
+                        for i, line in enumerate(resp.iter_lines()):
+                            body_lines.append(line)
+                            if i > 50:
+                                break
+                        body = "\n".join(body_lines)
+
                         if self.debug:
-                            print(f"[debug]   获取到 Session ID: {sid}", file=sys.stderr)
-                        return sid
+                            print(f"[debug]   SSE 前几行: {body[:500]}", file=sys.stderr)
 
-                    # 读取 SSE 事件，查找 endpoint 和 session 信息
-                    endpoint_url = self._parse_sse_endpoint(resp.text)
-                    if endpoint_url:
-                        self._endpoint_url = endpoint_url
-                        if self.debug:
-                            print(f"[debug]   SSE endpoint 事件: {endpoint_url}", file=sys.stderr)
+                        endpoint_url = self._parse_sse_endpoint(body)
+                        if endpoint_url:
+                            self._endpoint_url = endpoint_url
+                            if self.debug:
+                                print(f"[debug]   SSE endpoint 事件: {endpoint_url}", file=sys.stderr)
 
-                    # 也尝试从 SSE 事件中找 session id
-                    if not sid:
-                        sid = self._parse_sse_session_id(resp.text)
+                        sid = self._parse_sse_session_id(body)
                         if sid:
                             self._session_id = sid
                             if self.debug:
@@ -412,7 +423,7 @@ class HttpTransport(MCPTransport):
         # 无会话模式：直接 POST，不携带 Mcp-Session-Id
         self._session_id = ""
         if self.debug:
-            print("[debug] 未获取到 SSE 会话，使用无会话模式", file=sys.stderr)
+            print("[debug] 未获取到 SSE 会话，使用无会话模式直接 POST", file=sys.stderr)
         return ""
 
     def _parse_sse_endpoint(self, body: str) -> str | None:
@@ -663,7 +674,7 @@ def _get_transport(args: argparse.Namespace) -> MCPTransport:
     debug = getattr(args, "debug", False)
     transport = create_transport(backend, debug=debug)
 
-    # 判断是否为本地 Figma Desktop MCP（直接 HTTP，不需要 initialize）
+    # 判断是否为本地 Figma Desktop MCP（直接 HTTP，服务器内部已初始化）
     is_local_desktop_http = (
         backend == "remote"
         and os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL) == DEFAULT_MCP_URL
@@ -671,45 +682,37 @@ def _get_transport(args: argparse.Namespace) -> MCPTransport:
     )
 
     if is_local_desktop_http:
-        # 本地 Figma Desktop MCP：服务器已内部初始化，直接验证工具可用性
+        # 本地 Figma Desktop MCP：跳过 initialize 和 tools/list，直接尝试实际调用
+        # Figma Desktop MCP 服务器已内部初始化，不接受外部 initialize 请求
         if debug:
-            print(f"[debug] 本地 Figma Desktop MCP，跳过 initialize，直接验证工具列表 ...", file=sys.stderr)
-        try:
-            transport.list_tools()
-            if debug:
-                print("[debug] 工具列表获取成功", file=sys.stderr)
-        except ToolError as exc:
-            transport.close()
-            raise ToolError(
-                f"Figma Desktop MCP 连接失败: {exc}\n"
-                f"请确保 Figma Desktop 客户端已开启并登录。\n"
-                f"或尝试: FIGMA_BACKEND=desktop 使用 npx 后端。"
-            )
-    else:
-        # 标准 MCP 握手: initialize → initialized → tools/list
-        try:
-            transport.initialize()
-        except ToolError as exc:
-            transport.close()
-            if backend == "desktop":
-                raise ToolError(
-                    f"Figma Desktop MCP 启动失败: {exc}\n"
-                    f"请确保 Node.js 已安装，或设置 FIGMA_API_KEY 使用 remote 后端。"
-                )
-            else:
-                raise ToolError(
-                    f"Figma Remote MCP 连接失败: {exc}\n"
-                    f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
-                )
+            print("[debug] 本地 Figma Desktop MCP，跳过握手，直接准备工具调用", file=sys.stderr)
+        return transport
 
-        try:
-            transport.list_tools()
-        except ToolError as exc:
-            transport.close()
+    # 标准 MCP 握手: initialize → initialized → tools/list
+    try:
+        transport.initialize()
+    except ToolError as exc:
+        transport.close()
+        if backend == "desktop":
             raise ToolError(
-                f"MCP 连接验证失败: {exc}\n"
+                f"Figma Desktop MCP 启动失败: {exc}\n"
+                f"请确保 Node.js 已安装且设置了 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN。\n"
+                f"或如果 Figma Desktop 客户端已开启，本机 MCP 应自动可用。"
+            )
+        else:
+            raise ToolError(
+                f"Figma Remote MCP 连接失败: {exc}\n"
                 f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
             )
+
+    try:
+        transport.list_tools()
+    except ToolError as exc:
+        transport.close()
+        raise ToolError(
+            f"MCP 连接验证失败: {exc}\n"
+            f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
+        )
 
     return transport
 
