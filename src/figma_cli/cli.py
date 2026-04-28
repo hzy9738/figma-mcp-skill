@@ -554,6 +554,13 @@ class HttpTransport(MCPTransport):
         except httpx.HTTPError as exc:
             raise ToolError(f"MCP HTTP 请求失败 ({post_url}): {exc}")
 
+        # 捕获响应中的 Session ID（Figma Desktop MCP 在 POST initialize 响应中返回）
+        sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+        if sid and not self._session_id:
+            self._session_id = sid
+            if self.debug:
+                print(f"[debug]   从 POST 响应获取到 Session ID: {sid}", file=sys.stderr)
+
         # 尝试从 POST 响应直接读取 JSON-RPC 结果
         ct = resp.headers.get("content-type", "")
         if "text/event-stream" in ct:
