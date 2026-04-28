@@ -95,7 +95,7 @@ pip install figma-cli
 迁移到另一台机器：
 
 ```bash
-bash ~/.cc-switch/skills/figma/scripts/install.sh
+bash ~/.agent/skills/figma/scripts/install.sh
 ```
 
 ## 常见问题
