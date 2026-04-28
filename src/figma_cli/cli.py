@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -148,6 +149,18 @@ def resolve_backend(preferred: str | None = None) -> str:
         return backend
 
     raise ToolError(f"未知的 FIGMA_BACKEND 值: {backend}，可选: auto, desktop, remote")
+
+
+def _backend_display_name(backend: str) -> str:
+    """返回用户友好的后端显示名称。"""
+    mcp_url = os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL)
+    if backend == "remote" and mcp_url == DEFAULT_MCP_URL and _check_local_mcp():
+        return "desktop (本机 Figma Desktop MCP)"
+    if backend == "remote" and mcp_url == DEFAULT_MCP_URL:
+        return "remote (本机 HTTP)"
+    if backend == "remote":
+        return f"remote ({mcp_url})"
+    return backend
 
 
 def find_npx_bin() -> str:
@@ -833,17 +846,39 @@ def _extract_text_content(result: dict[str, Any]) -> str:
     return "\n".join(texts)
 
 
+def _save_images_from_result(result: dict[str, Any], output_dir: Path, node_id: str) -> list[Path]:
+    """从 MCP 结果中提取 base64 图片并保存为 PNG 文件。返回已保存的文件路径列表。"""
+    saved: list[Path] = []
+    content = result.get("content", [])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for i, item in enumerate(content):
+        if not isinstance(item, dict) or item.get("type") != "image":
+            continue
+        b64_data = item.get("data", "")
+        if not b64_data:
+            continue
+        safe_node = node_id.replace(":", "_")
+        suffix = f"_{i}" if i > 0 else ""
+        path = output_dir / f"screenshot_{safe_node}{suffix}.png"
+        path.write_bytes(base64.b64decode(b64_data))
+        saved.append(path)
+    return saved
+
+
 # --- status ---
 
 def command_status(args: argparse.Namespace) -> int:
     backend = resolve_backend(getattr(args, "backend", None))
     cache = CacheManager(find_cache_root())
 
+    display_backend = _backend_display_name(backend)
     payload: dict[str, Any] = {
         "tool": APP_NAME,
         "version": VERSION,
         "python_version": sys.version.split()[0],
-        "backend": backend,
+        "backend": display_backend,
+        "backend_raw": backend,
+        "mcp_url": os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL),
         "figma_api_key_set": bool(os.environ.get(ENV_FIGMA_API_KEY)),
         "figma_oauth_token_set": bool(os.environ.get(ENV_FIGMA_OAUTH_TOKEN)),
         "npx_available": shutil.which("npx") is not None,
@@ -871,7 +906,7 @@ def command_status(args: argparse.Namespace) -> int:
         print(_format_json(payload))
     else:
         print(f"Figma CLI v{VERSION}")
-        print(f"后端: {backend} ({'已连接' if payload.get('connected') else '未连接'})")
+        print(f"后端: {display_backend} ({'已连接' if payload.get('connected') else '未连接'})")
         print(f"npx: {'可用' if payload['npx_available'] else '不可用'}")
         print(f"httpx: {'可用' if payload['httpx_available'] else '不可用'}")
         print(f"FIGMA_API_KEY: {'已设置' if payload['figma_api_key_set'] else '未设置'}")
@@ -891,6 +926,7 @@ def command_status(args: argparse.Namespace) -> int:
 
 def command_self_check(args: argparse.Namespace) -> int:
     backend = resolve_backend(getattr(args, "backend", None))
+    display_backend = _backend_display_name(backend)
     cache = CacheManager(find_cache_root())
 
     payload: dict[str, Any] = {
@@ -898,7 +934,8 @@ def command_self_check(args: argparse.Namespace) -> int:
         "version": VERSION,
         "python_version": sys.version.split()[0],
         "python_executable": sys.executable,
-        "backend": backend,
+        "backend": display_backend,
+        "backend_raw": backend,
         "mcp_url": os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL),
         "npx_path": shutil.which("npx"),
         "npx_available": shutil.which("npx") is not None,
@@ -974,9 +1011,9 @@ def command_get_design(args: argparse.Namespace) -> int:
     if node_id:
         arguments["nodeId"] = node_id
     if args.client_languages:
-        arguments["clientLanguages"] = args.client_languages
+        arguments["clientLanguages"] = ",".join(args.client_languages)
     if args.client_frameworks:
-        arguments["clientFrameworks"] = args.client_frameworks
+        arguments["clientFrameworks"] = ",".join(args.client_frameworks)
 
     result = transport.call_tool("get_design_context", arguments)
     transport.close()
@@ -1009,22 +1046,63 @@ def command_get_screenshot(args: argparse.Namespace) -> int:
         "nodeId": node_id,
     }
     if args.client_languages:
-        arguments["clientLanguages"] = args.client_languages
+        arguments["clientLanguages"] = ",".join(args.client_languages)
     if args.client_frameworks:
-        arguments["clientFrameworks"] = args.client_frameworks
+        arguments["clientFrameworks"] = ",".join(args.client_frameworks)
 
     result = transport.call_tool("get_screenshot", arguments)
     transport.close()
 
-    if args.json:
-        print(_format_json(result))
-    else:
-        text = _extract_text_content(result)
-        print(text)
+    # 自动解码 base64 图片到缓存目录
+    cache_root = find_cache_root()
+    cache_dir = cache_root / file_key
+    saved_files = _save_images_from_result(result, cache_dir, node_id)
 
+    # 如果用户指定了 --output，额外复制一份
+    output_path: Path | None = None
+    if getattr(args, "output", None):
+        output_path = Path(args.output)
+        if saved_files:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(saved_files[0].read_bytes())
+        elif not args.json:
+            print("警告: 未在结果中找到图片数据", file=sys.stderr)
+
+    if args.json:
+        payload = dict(result)
+        if saved_files:
+            payload["_saved_files"] = [str(p) for p in saved_files]
+        if output_path:
+            payload["_output"] = str(output_path)
+        print(_format_json(payload))
+    else:
+        if saved_files:
+            for f in saved_files:
+                size_kb = f.stat().st_size / 1024
+                print(f"截图已保存: {f} ({size_kb:.1f} KB)")
+        if output_path and output_path != (saved_files[0] if saved_files else None):
+            size_kb = output_path.stat().st_size / 1024
+            print(f"截图已导出: {output_path} ({size_kb:.1f} KB)")
+        if not saved_files:
+            # 回退到文本输出
+            text = _extract_text_content(result)
+            if text:
+                print(text)
+            else:
+                print("截图已获取（未找到可解码的图片数据）", file=sys.stderr)
+
+    # 缓存原始结果（不含 base64 的轻量缓存，避免重复存储大文件）
     if not args.no_cache:
-        cache = CacheManager(find_cache_root())
-        cache.write(file_key, "get_screenshot", result, node_id)
+        cache = CacheManager(cache_root)
+        light_result = dict(result)
+        # 移除 base64 数据以节省缓存空间（PNG 文件已单独保存）
+        if "content" in light_result:
+            light_result["content"] = [
+                {k: v for k, v in item.items() if k != "data"}
+                if isinstance(item, dict) else item
+                for item in light_result["content"]
+            ]
+        cache.write(file_key, "get_screenshot", light_result, node_id)
 
     return 0
 
@@ -1040,9 +1118,9 @@ def command_get_metadata(args: argparse.Namespace) -> int:
     if node_id:
         arguments["nodeId"] = node_id
     if args.client_languages:
-        arguments["clientLanguages"] = args.client_languages
+        arguments["clientLanguages"] = ",".join(args.client_languages)
     if args.client_frameworks:
-        arguments["clientFrameworks"] = args.client_frameworks
+        arguments["clientFrameworks"] = ",".join(args.client_frameworks)
 
     result = transport.call_tool("get_metadata", arguments)
     transport.close()
@@ -1065,9 +1143,9 @@ def command_get_variable_defs(args: argparse.Namespace) -> int:
     if node_id:
         arguments["nodeId"] = node_id
     if args.client_languages:
-        arguments["clientLanguages"] = args.client_languages
+        arguments["clientLanguages"] = ",".join(args.client_languages)
     if args.client_frameworks:
-        arguments["clientFrameworks"] = args.client_frameworks
+        arguments["clientFrameworks"] = ",".join(args.client_frameworks)
 
     result = transport.call_tool("get_variable_defs", arguments)
     transport.close()
@@ -1208,6 +1286,7 @@ def build_parser() -> argparse.ArgumentParser:
     get_screenshot.add_argument("--file-key", help="直接指定 file_key")
     get_screenshot.add_argument("--client-languages", nargs="+", help="目标语言")
     get_screenshot.add_argument("--client-frameworks", nargs="+", help="目标框架")
+    get_screenshot.add_argument("-o", "--output", help="截图输出路径（默认自动保存到缓存目录）")
     get_screenshot.add_argument("--json", action="store_true", help="JSON 格式输出")
     get_screenshot.add_argument("--no-cache", action="store_true", help="跳过本地缓存")
     get_screenshot.set_defaults(func=command_get_screenshot)
