@@ -89,27 +89,18 @@ echo "试试:"
 echo "  figma-cli --help"
 echo "  figma-cli self-check"
 
-# 安装 skill（管道执行时自动走默认 ~/.agents/skills/figma-cli）
+# 询问是否安装 skill（从 /dev/tty 读取，兼容 curl | bash 管道模式）
 echo
-if [[ -t 0 ]]; then
-  # 交互终端：询问用户
-  read -r -p "是否安装 Skill 到 Agent 目录? [Y/n]: " install_skill
+if [[ -r /dev/tty ]]; then
+  read -r -p "是否安装 Skill 到 Agent 目录? [Y/n]: " install_skill < /dev/tty
   install_skill="${install_skill:-y}"
 else
-  # 管道执行（curl | bash）：自动安装
-  echo "自动安装 Skill 到 ~/.agents/skills/figma-cli ..."
-  install_skill="y"
+  echo "未检测到终端，跳过 Skill 安装。"
+  echo "请稍后手动运行: bash ${SKILL_DST_DIR}/scripts/install-skill.sh"
+  install_skill="n"
 fi
 
 if [[ "${install_skill}" =~ ^[Yy]$ ]]; then
-  if [[ -t 0 ]]; then
-    echo
-    bash "${SKILL_DST_DIR}/scripts/install-skill.sh"
-  else
-    # 管道模式下，install-skill.sh 的 read 也会失败，直接用默认选项
-    TARGET="${HOME}/.agents/skills/figma-cli"
-    mkdir -p "${TARGET}"
-    cp "${SKILL_DST_DIR}/skill/SKILL.md" "${TARGET}/SKILL.md"
-    echo "✓ Skill 已安装到: ${TARGET}"
-  fi
+  echo
+  bash "${SKILL_DST_DIR}/scripts/install-skill.sh" < /dev/tty
 fi

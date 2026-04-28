@@ -18,7 +18,7 @@ echo "  5) ~/.cc-switch/skills        (cc-switch)"
 echo "  6) 手动输入路径"
 echo ""
 
-read -r -p "请输入序号 [1]: " choice
+read -r -p "请输入序号 [1]: " choice < /dev/tty
 choice="${choice:-1}"
 
 case "${choice}" in
@@ -28,7 +28,7 @@ case "${choice}" in
   4) TARGET="${HOME}/.opencode/skills/figma-cli" ;;
   5) TARGET="${HOME}/.cc-switch/skills/figma-cli" ;;
   6)
-    read -r -p "请输入安装路径: " TARGET
+    read -r -p "请输入安装路径: " TARGET < /dev/tty
     if [[ -z "${TARGET}" ]]; then
       echo "路径不能为空" >&2
       exit 1
