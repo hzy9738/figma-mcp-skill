@@ -86,7 +86,7 @@ CLI 默认自动检测可用后端（`FIGMA_BACKEND=auto`）。
 
 ```bash
 # curl 一行安装
-curl -fsSL https://raw.githubusercontent.com/... | bash
+curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 # 或手动安装
 pip install figma-cli
