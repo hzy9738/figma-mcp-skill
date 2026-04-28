@@ -89,11 +89,27 @@ echo "试试:"
 echo "  figma-cli --help"
 echo "  figma-cli self-check"
 
-# 询问是否安装 skill
+# 安装 skill（管道执行时自动走默认 ~/.agents/skills/figma-cli）
 echo
-read -r -p "是否安装 Skill 到 Agent 目录? [Y/n]: " install_skill
-install_skill="${install_skill:-y}"
+if [[ -t 0 ]]; then
+  # 交互终端：询问用户
+  read -r -p "是否安装 Skill 到 Agent 目录? [Y/n]: " install_skill
+  install_skill="${install_skill:-y}"
+else
+  # 管道执行（curl | bash）：自动安装
+  echo "自动安装 Skill 到 ~/.agents/skills/figma-cli ..."
+  install_skill="y"
+fi
+
 if [[ "${install_skill}" =~ ^[Yy]$ ]]; then
-  echo
-  bash "${SKILL_DST_DIR}/scripts/install-skill.sh"
+  if [[ -t 0 ]]; then
+    echo
+    bash "${SKILL_DST_DIR}/scripts/install-skill.sh"
+  else
+    # 管道模式下，install-skill.sh 的 read 也会失败，直接用默认选项
+    TARGET="${HOME}/.agents/skills/figma-cli"
+    mkdir -p "${TARGET}"
+    cp "${SKILL_DST_DIR}/skill/SKILL.md" "${TARGET}/SKILL.md"
+    echo "✓ Skill 已安装到: ${TARGET}"
+  fi
 fi
