@@ -52,19 +52,23 @@ figma-cli self-check
 
 ## 后端选择
 
-| 后端 | 配置方式 | 适用场景 |
+优先级: 本机 Figma Desktop MCP → npx → 远程云
+
+| 后端 | 配置 | 说明 |
 |---|---|---|
-| Desktop MCP | 默认，需要 Figma 桌面端 | 本地开发，免费账户可用 |
-| Remote MCP | `FIGMA_BACKEND=remote` + `FIGMA_API_KEY` | 有 Figma API key，操作线上文件 |
+| 本机 MCP | 默认，Figma 桌面端已开启 | 免费账户可用，无需 API key |
+| npx Desktop | `FIGMA_BACKEND=desktop` | 通过 npx figma-developer-mcp |
+| 远程云 | `FIGMA_MCP_URL=https://mcp.figma.com/mcp` + `FIGMA_API_KEY` | 有 Figma API key |
 
 ```bash
-# 使用远程 MCP
-export FIGMA_BACKEND=remote
+# 默认：自动检测本机 Figma Desktop MCP (http://127.0.0.1:3845/mcp)
+figma-cli self-check
+
+# 远程云 MCP
+export FIGMA_MCP_URL=https://mcp.figma.com/mcp
 export FIGMA_API_KEY=figd_xxxxx
 figma-cli status
 ```
-
-CLI 默认自动检测可用后端（`FIGMA_BACKEND=auto`）。
 
 ## 缓存
 
@@ -79,6 +83,7 @@ CLI 默认自动检测可用后端（`FIGMA_BACKEND=auto`）。
 | `FIGMA_API_KEY` | Figma Personal Access Token |
 | `FIGMA_OAUTH_TOKEN` | Figma OAuth Bearer Token |
 | `FIGMA_BACKEND` | 后端选择: auto, desktop, remote |
+| `FIGMA_MCP_URL` | 自定义 MCP HTTP 端点 (默认 http://127.0.0.1:3845/mcp) |
 | `FIGMA_MCP_BIN` | 自定义 Figma MCP server 路径 |
 | `FIGMA_IMAGE_DIR` | 图片下载输出目录 |
 

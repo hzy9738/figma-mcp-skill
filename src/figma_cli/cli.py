@@ -42,11 +42,13 @@ VERSION = "0.1.0"
 CACHE_DIRNAME = ".figma"
 DEFAULT_FIGMA_MCP_PACKAGE = "figma-developer-mcp"
 REMOTE_MCP_URL = "https://mcp.figma.com/mcp"
+DEFAULT_MCP_URL = "http://127.0.0.1:3845/mcp"   # Figma Desktop 本地 MCP 端点
 
 # 环境变量
 ENV_FIGMA_API_KEY = "FIGMA_API_KEY"
 ENV_FIGMA_OAUTH_TOKEN = "FIGMA_OAUTH_TOKEN"
 ENV_FIGMA_BACKEND = "FIGMA_BACKEND"          # remote | desktop | auto
+ENV_FIGMA_MCP_URL = "FIGMA_MCP_URL"          # 自定义 MCP HTTP 端点（覆盖默认 URL）
 ENV_FIGMA_MCP_BIN = "FIGMA_MCP_BIN"          # 自定义 server 路径
 ENV_FIGMA_IMAGE_DIR = "FIGMA_IMAGE_DIR"      # 图片下载目录
 
@@ -98,11 +100,27 @@ def parse_figma_url(url: str) -> tuple[str, str | None]:
     return file_key, node_id
 
 
+def _check_local_mcp() -> bool:
+    """检查本地 Figma Desktop MCP 端点是否可用。"""
+    if not HAS_HTTPX:
+        return False
+    try:
+        r = httpx.get(DEFAULT_MCP_URL, timeout=2.0)
+        r.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
 def resolve_backend(preferred: str | None = None) -> str:
-    """解析 Figma MCP 后端模式：auto → 自动检测可用后端。"""
+    """解析 Figma MCP 后端模式。auto 优先级: 本机 Desktop MCP > npx > 远程。"""
     backend = preferred or os.environ.get(ENV_FIGMA_BACKEND, "auto")
 
     if backend == "auto":
+        # 1. 优先本机 Figma Desktop MCP (http://127.0.0.1:3845/mcp)
+        if _check_local_mcp():
+            return "remote"
+        # 2. 其次 npx figma-developer-mcp
         if shutil.which("npx"):
             try:
                 proc = subprocess.run(
@@ -113,9 +131,10 @@ def resolve_backend(preferred: str | None = None) -> str:
                     return "desktop"
             except Exception:
                 pass
+        # 3. 远程云 MCP（需要 API key）
         if os.environ.get(ENV_FIGMA_API_KEY) or os.environ.get(ENV_FIGMA_OAUTH_TOKEN):
             return "remote"
-        return "desktop"  # 默认尝试 desktop
+        return "desktop"  # 最后尝试 desktop
 
     if backend in ("desktop", "remote"):
         return backend
@@ -311,14 +330,19 @@ class StdioTransport(MCPTransport):
 
 @dataclass
 class HttpTransport(MCPTransport):
-    """基于 HTTP POST 的远程 MCP 传输。
+    """基于 HTTP POST 的 MCP 传输。
 
-    直接向 Figma 远程 MCP 端点（mcp.figma.com）发送 JSON-RPC 请求，
-    适用于 MCP Streamable HTTP 传输协议。
+    通过 HTTP POST 发送 JSON-RPC 请求，适用于：
+    - Figma Remote MCP (https://mcp.figma.com/mcp)
+    - Figma Desktop MCP (http://127.0.0.1:3845/mcp)
+    - 以及任意通过 FIGMA_MCP_URL 指定的端点
     """
 
-    base_url: str = REMOTE_MCP_URL
     _client: Any = field(default=None, init=False)
+
+    @property
+    def base_url(self) -> str:
+        return os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL)
 
     def _ensure_client(self) -> Any:
         if not HAS_HTTPX:
@@ -635,6 +659,7 @@ def command_self_check(args: argparse.Namespace) -> int:
         "python_version": sys.version.split()[0],
         "python_executable": sys.executable,
         "backend": backend,
+        "mcp_url": os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL),
         "npx_path": shutil.which("npx"),
         "npx_available": shutil.which("npx") is not None,
         "httpx_available": HAS_HTTPX,
@@ -644,6 +669,16 @@ def command_self_check(args: argparse.Namespace) -> int:
         "image_dir": os.environ.get(ENV_FIGMA_IMAGE_DIR, os.getcwd()),
         "cache_root": str(cache.cache_root),
     }
+
+    # 检查本地 Figma Desktop MCP 端点
+    if HAS_HTTPX:
+        local_url = "http://127.0.0.1:3845/mcp"
+        try:
+            r = httpx.get(local_url, timeout=2.0)
+            payload["desktop_mcp_local"] = True
+            payload["desktop_mcp_url"] = local_url
+        except Exception:
+            payload["desktop_mcp_local"] = False
 
     # 检查 Node.js
     try:
