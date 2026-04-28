@@ -580,21 +580,37 @@ def _get_transport(args: argparse.Namespace) -> MCPTransport:
     backend = resolve_backend(getattr(args, "backend", None))
     transport = create_transport(backend)
 
-    # 尝试初始化，失败时提供诊断信息
+    # 先尝试初始化，如果 initialize 被拒绝则跳过（Figma Desktop MCP 已内部初始化）
+    initialized = False
     try:
         transport.initialize()
+        initialized = True
+    except ToolError as exc:
+        if "initialize" in str(exc).lower() or "Invalid request body" in str(exc):
+            pass  # 服务器不需要 initialize，直接使用
+        else:
+            transport.close()
+            if backend == "desktop":
+                raise ToolError(
+                    f"Figma Desktop MCP 启动失败: {exc}\n"
+                    f"请确保 Node.js 已安装，或设置 FIGMA_API_KEY 使用 remote 后端。"
+                )
+            else:
+                raise ToolError(
+                    f"Figma Remote MCP 连接失败: {exc}\n"
+                    f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
+                )
+
+    # 验证连接可用（调用 tools/list）
+    try:
+        transport.list_tools()
     except ToolError as exc:
         transport.close()
-        if backend == "desktop":
-            raise ToolError(
-                f"Figma Desktop MCP 启动失败: {exc}\n"
-                f"请确保 Node.js 已安装，或设置 FIGMA_API_KEY 使用 remote 后端。"
-            )
-        else:
-            raise ToolError(
-                f"Figma Remote MCP 连接失败: {exc}\n"
-                f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
-            )
+        raise ToolError(
+            f"MCP 连接验证失败: {exc}\n"
+            f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
+        )
+
     return transport
 
 
