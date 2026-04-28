@@ -88,3 +88,12 @@ echo "命令: ${WRAPPER_PATH}"
 echo "试试:"
 echo "  figma-cli --help"
 echo "  figma-cli self-check"
+
+# 询问是否安装 skill
+echo
+read -r -p "是否安装 Skill 到 Agent 目录? [Y/n]: " install_skill
+install_skill="${install_skill:-y}"
+if [[ "${install_skill}" =~ ^[Yy]$ ]]; then
+  echo
+  bash "${SKILL_DST_DIR}/scripts/install-skill.sh"
+fi
