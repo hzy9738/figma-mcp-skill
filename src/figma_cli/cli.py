@@ -113,15 +113,13 @@ def _check_local_mcp() -> bool:
 
 
 def resolve_backend(preferred: str | None = None) -> str:
-    """解析 Figma MCP 后端模式。auto 优先级: 本机 Desktop MCP > npx > 远程。"""
+    """解析 Figma MCP 后端模式。auto 优先级: npx > 本地 Desktop HTTP > 远程云。"""
     backend = preferred or os.environ.get(ENV_FIGMA_BACKEND, "auto")
 
     if backend == "auto":
-        # 1. 优先本机 Figma Desktop MCP (http://127.0.0.1:3845/mcp)
-        if _check_local_mcp():
-            return "remote"
-        # 2. 其次 npx figma-developer-mcp
-        if shutil.which("npx"):
+        # 1. 优先 npx figma-developer-mcp（最可靠的 Figma Desktop 通信方式）
+        npx_available = shutil.which("npx") is not None
+        if npx_available:
             try:
                 proc = subprocess.run(
                     ["npx", DEFAULT_FIGMA_MCP_PACKAGE, "--version"],
@@ -131,10 +129,17 @@ def resolve_backend(preferred: str | None = None) -> str:
                     return "desktop"
             except Exception:
                 pass
+
+        # 2. 其次尝试本机 Figma Desktop MCP 直接 HTTP
+        if _check_local_mcp():
+            return "remote"
+
         # 3. 远程云 MCP（需要 API key）
         if os.environ.get(ENV_FIGMA_API_KEY) or os.environ.get(ENV_FIGMA_OAUTH_TOKEN):
             return "remote"
-        return "desktop"  # 最后尝试 desktop
+
+        # 4. 最后尝试 desktop（可能失败但会给出明确错误提示）
+        return "desktop"
 
     if backend in ("desktop", "remote"):
         return backend
@@ -224,7 +229,7 @@ class StdioTransport(MCPTransport):
 
     def _build_cmd(self) -> list[str]:
         npx = find_npx_bin()
-        cmd = [npx, DEFAULT_FIGMA_MCP_PACKAGE, "--stdio", "--json"]
+        cmd = [npx, DEFAULT_FIGMA_MCP_PACKAGE, "--stdio"]
 
         # 传入 API key 或 OAuth token
         api_key = os.environ.get(ENV_FIGMA_API_KEY)
@@ -339,10 +344,17 @@ class HttpTransport(MCPTransport):
 
     _client: Any = field(default=None, init=False)
     _session_id: str | None = field(default=None, init=False)
+    _endpoint_url: str | None = field(default=None, init=False)  # SSE endpoint 事件中的 POST URL
+    debug: bool = field(default=False)
 
     @property
     def base_url(self) -> str:
         return os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL)
+
+    @property
+    def _post_url(self) -> str:
+        """POST 请求的目标 URL。优先使用 SSE endpoint 事件中指定的 URL。"""
+        return self._endpoint_url or self.base_url
 
     def _ensure_client(self) -> Any:
         if not HAS_HTTPX:
@@ -352,27 +364,86 @@ class HttpTransport(MCPTransport):
         return self._client
 
     def _ensure_session(self) -> str:
-        """尝试 GET 建立 SSE 会话；失败则回退到直接 POST（无需 session ID）。"""
+        """尝试多种方式建立 SSE 会话并获取 POST 端点。"""
         if self._session_id is not None:
             return self._session_id
 
         client = self._ensure_client()
-        try:
-            resp = client.get(
-                self.base_url,
-                headers={"Accept": "text/event-stream", **self._auth_headers()},
-            )
-            resp.raise_for_status()
-            sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
-            if sid:
-                self._session_id = sid
-                return sid
-        except httpx.HTTPError:
-            pass  # GET 失败，继续尝试直接 POST
+        auth = self._auth_headers()
 
-        # 无法建立 SSE 会话，标记为无需 session（直接 POST 模式）
+        # 尝试 GET 建立 SSE 会话（Streamable HTTP 规范）
+        for sse_path in ["/sse", ""]:
+            sse_url = f"{self.base_url.rstrip('/')}{sse_path}" if sse_path else self.base_url
+            try:
+                hdr = {"Accept": "text/event-stream", **auth}
+                resp = client.get(sse_url, headers=hdr)
+                if self.debug:
+                    print(f"[debug] GET {sse_url} → {resp.status_code}", file=sys.stderr)
+                    print(f"[debug]   响应头: {dict(resp.headers)}", file=sys.stderr)
+
+                if resp.is_success:
+                    sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+                    if sid:
+                        self._session_id = sid
+                        if self.debug:
+                            print(f"[debug]   获取到 Session ID: {sid}", file=sys.stderr)
+                        return sid
+
+                    # 读取 SSE 事件，查找 endpoint 和 session 信息
+                    endpoint_url = self._parse_sse_endpoint(resp.text)
+                    if endpoint_url:
+                        self._endpoint_url = endpoint_url
+                        if self.debug:
+                            print(f"[debug]   SSE endpoint 事件: {endpoint_url}", file=sys.stderr)
+
+                    # 也尝试从 SSE 事件中找 session id
+                    if not sid:
+                        sid = self._parse_sse_session_id(resp.text)
+                        if sid:
+                            self._session_id = sid
+                            if self.debug:
+                                print(f"[debug]   从 SSE 获取到 Session ID: {sid}", file=sys.stderr)
+                            return sid
+            except httpx.HTTPError as exc:
+                if self.debug:
+                    print(f"[debug] GET {sse_url} 失败: {exc}", file=sys.stderr)
+                continue
+
+        # 无会话模式：直接 POST，不携带 Mcp-Session-Id
         self._session_id = ""
+        if self.debug:
+            print("[debug] 未获取到 SSE 会话，使用无会话模式", file=sys.stderr)
         return ""
+
+    def _parse_sse_endpoint(self, body: str) -> str | None:
+        """从 SSE 响应中解析 endpoint 事件。"""
+        event_type = None
+        for line in body.splitlines():
+            line = line.strip()
+            if line.startswith("event:"):
+                event_type = line[6:].strip()
+            elif line.startswith("data:") and event_type == "endpoint":
+                data = line[5:].strip()
+                if data:
+                    return data
+        return None
+
+    def _parse_sse_session_id(self, body: str) -> str | None:
+        """从 SSE 响应中解析 session ID。"""
+        for line in body.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                data_str = line[5:].strip()
+                if not data_str:
+                    continue
+                try:
+                    data = json.loads(data_str)
+                    sid = data.get("sessionId") or data.get("session_id")
+                    if sid:
+                        return sid
+                except json.JSONDecodeError:
+                    continue
+        return None
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -398,6 +469,7 @@ class HttpTransport(MCPTransport):
         self._ensure_session()
         client = self._ensure_client()
         request_id = self.next_id()
+        post_url = self._post_url
 
         request = {
             "jsonrpc": "2.0",
@@ -406,17 +478,27 @@ class HttpTransport(MCPTransport):
             "params": params or {},
         }
         payload = json.dumps(request, ensure_ascii=False)
+        headers = self._build_headers()
+
+        if self.debug:
+            print(f"[debug] POST {post_url}", file=sys.stderr)
+            print(f"[debug]   请求头: {headers}", file=sys.stderr)
+            print(f"[debug]   请求体: {payload[:500]}", file=sys.stderr)
 
         try:
-            resp = client.post(self.base_url, content=payload, headers=self._build_headers())
+            resp = client.post(post_url, content=payload, headers=headers)
+            if self.debug:
+                print(f"[debug]   响应状态: {resp.status_code}", file=sys.stderr)
+                print(f"[debug]   响应头: {dict(resp.headers)}", file=sys.stderr)
+                print(f"[debug]   响应体: {resp.text[:500]}", file=sys.stderr)
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ToolError(
-                f"MCP HTTP 请求失败 ({self.base_url}): {exc} "
+                f"MCP HTTP 请求失败 ({post_url}): {exc} "
                 f"body={exc.response.text[:300]}"
             )
         except httpx.HTTPError as exc:
-            raise ToolError(f"MCP HTTP 请求失败 ({self.base_url}): {exc}")
+            raise ToolError(f"MCP HTTP 请求失败 ({post_url}): {exc}")
 
         # 解析响应
         ct = resp.headers.get("content-type", "")
@@ -465,7 +547,7 @@ class HttpTransport(MCPTransport):
         }
         payload = json.dumps(notification, ensure_ascii=False)
         try:
-            client.post(self.base_url, content=payload, headers=self._build_headers())
+            client.post(self._post_url, content=payload, headers=self._build_headers())
         except httpx.HTTPError:
             pass
 
@@ -475,7 +557,7 @@ class HttpTransport(MCPTransport):
             self._client = None
 
 
-def create_transport(backend: str, image_dir: str | None = None) -> MCPTransport:
+def create_transport(backend: str, image_dir: str | None = None, debug: bool = False) -> MCPTransport:
     """创建 MCP 传输实例。"""
     if backend == "desktop":
         return StdioTransport(
@@ -483,7 +565,7 @@ def create_transport(backend: str, image_dir: str | None = None) -> MCPTransport
             image_dir=image_dir,
         )
     elif backend == "remote":
-        return HttpTransport(backend="remote")
+        return HttpTransport(backend="remote", debug=debug)
     else:
         raise ToolError(f"未知后端: {backend}")
 
@@ -578,17 +660,36 @@ def find_cache_root() -> Path:
 
 def _get_transport(args: argparse.Namespace) -> MCPTransport:
     backend = resolve_backend(getattr(args, "backend", None))
-    transport = create_transport(backend)
+    debug = getattr(args, "debug", False)
+    transport = create_transport(backend, debug=debug)
 
-    # 先尝试初始化，如果 initialize 被拒绝则跳过（Figma Desktop MCP 已内部初始化）
-    initialized = False
-    try:
-        transport.initialize()
-        initialized = True
-    except ToolError as exc:
-        if "initialize" in str(exc).lower() or "Invalid request body" in str(exc):
-            pass  # 服务器不需要 initialize，直接使用
-        else:
+    # 判断是否为本地 Figma Desktop MCP（直接 HTTP，不需要 initialize）
+    is_local_desktop_http = (
+        backend == "remote"
+        and os.environ.get(ENV_FIGMA_MCP_URL, DEFAULT_MCP_URL) == DEFAULT_MCP_URL
+        and _check_local_mcp()
+    )
+
+    if is_local_desktop_http:
+        # 本地 Figma Desktop MCP：服务器已内部初始化，直接验证工具可用性
+        if debug:
+            print(f"[debug] 本地 Figma Desktop MCP，跳过 initialize，直接验证工具列表 ...", file=sys.stderr)
+        try:
+            transport.list_tools()
+            if debug:
+                print("[debug] 工具列表获取成功", file=sys.stderr)
+        except ToolError as exc:
+            transport.close()
+            raise ToolError(
+                f"Figma Desktop MCP 连接失败: {exc}\n"
+                f"请确保 Figma Desktop 客户端已开启并登录。\n"
+                f"或尝试: FIGMA_BACKEND=desktop 使用 npx 后端。"
+            )
+    else:
+        # 标准 MCP 握手: initialize → initialized → tools/list
+        try:
+            transport.initialize()
+        except ToolError as exc:
             transport.close()
             if backend == "desktop":
                 raise ToolError(
@@ -601,15 +702,14 @@ def _get_transport(args: argparse.Namespace) -> MCPTransport:
                     f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
                 )
 
-    # 验证连接可用（调用 tools/list）
-    try:
-        transport.list_tools()
-    except ToolError as exc:
-        transport.close()
-        raise ToolError(
-            f"MCP 连接验证失败: {exc}\n"
-            f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
-        )
+        try:
+            transport.list_tools()
+        except ToolError as exc:
+            transport.close()
+            raise ToolError(
+                f"MCP 连接验证失败: {exc}\n"
+                f"请检查 FIGMA_API_KEY 或 FIGMA_OAUTH_TOKEN 环境变量。"
+            )
 
     return transport
 
@@ -674,7 +774,8 @@ def command_status(args: argparse.Namespace) -> int:
 
     # 尝试连接后端
     try:
-        transport = create_transport(backend)
+        debug = getattr(args, "debug", False)
+        transport = create_transport(backend, debug=debug)
         transport.initialize()
         tools = transport.list_tools()
         payload["connected"] = True
@@ -762,7 +863,8 @@ def command_self_check(args: argparse.Namespace) -> int:
 
     # 测试连接
     try:
-        transport = create_transport(backend)
+        debug = getattr(args, "debug", False)
+        transport = create_transport(backend, debug=debug)
         transport.initialize()
         tools = transport.list_tools()
         payload["connection_ok"] = True
@@ -989,6 +1091,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--backend",
         choices=["auto", "desktop", "remote"],
         help="后端模式 (默认: auto，通过 FIGMA_BACKEND 环境变量覆盖)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="输出调试信息（HTTP 请求/响应详情）",
     )
     subparsers = parser.add_subparsers(dest="command", required=False)
 
