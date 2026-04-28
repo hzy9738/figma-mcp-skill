@@ -65,9 +65,10 @@ class BackendResolutionTest(unittest.TestCase):
     """后端解析测试。"""
 
     @mock.patch.dict(MODULE.os.environ, {}, clear=True)
+    @mock.patch.object(MODULE, "_check_local_mcp", return_value=False)
     @mock.patch.object(MODULE.shutil, "which", return_value="/usr/local/bin/npx")
     @mock.patch.object(MODULE.subprocess, "run")
-    def test_auto_backend_prefers_desktop(self, mock_run, _mock_which) -> None:
+    def test_auto_backend_prefers_desktop(self, mock_run, _mock_which, _mock_local) -> None:
         mock_run.return_value = mock.Mock(returncode=0)
         backend = MODULE.resolve_backend()
         self.assertEqual(backend, "desktop")
@@ -78,9 +79,10 @@ class BackendResolutionTest(unittest.TestCase):
         self.assertEqual(backend, "remote")
 
     @mock.patch.dict(MODULE.os.environ, {}, clear=True)
+    @mock.patch.object(MODULE, "_check_local_mcp", return_value=False)
     @mock.patch.object(MODULE.shutil, "which", return_value=None)
     @mock.patch.dict(MODULE.os.environ, {"FIGMA_API_KEY": "figd_test"}, clear=False)
-    def test_auto_falls_back_to_remote_when_no_npx(self, _mock_which) -> None:
+    def test_auto_falls_back_to_remote_when_no_npx(self, _mock_which, _mock_local) -> None:
         backend = MODULE.resolve_backend()
         self.assertEqual(backend, "remote")
 
