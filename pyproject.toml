@@ -8,7 +8,7 @@ dependencies = [
 ]
 
 [project.scripts]
-figma = "figma_cli.cli:main"
+figma-cli = "figma_cli.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
