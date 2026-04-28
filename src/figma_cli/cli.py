@@ -38,7 +38,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 APP_NAME = "figma-cli"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 CACHE_DIRNAME = ".figma"
 DEFAULT_FIGMA_MCP_PACKAGE = "figma-developer-mcp"
@@ -1185,18 +1185,27 @@ def command_refresh(args: argparse.Namespace) -> int:
 
 
 def _resolve_file_and_node(args: argparse.Namespace) -> tuple[str, str | None]:
-    """从命令行参数中解析 file_key 和 node_id。"""
-    url_or_key = args.url
-    node_id_override = getattr(args, "node_id", None)
+    """从命令行参数中解析 file_key 和 node_id。url 可选，当 --file-key 提供时可省略。"""
+    url_or_key: str | None = args.url
+    node_id_override: str | None = getattr(args, "node_id", None)
+    file_key_arg: str | None = getattr(args, "file_key", None)
+
+    # 未提供 URL：从 --file-key / --node-id 获取
+    if not url_or_key:
+        if file_key_arg:
+            node_id = node_id_override.replace("-", ":") if node_id_override else None
+            return file_key_arg, node_id
+        raise ToolError(
+            "请提供 Figma URL、file_key，或通过 --file-key 指定文件。\n"
+            "示例: figma-cli get-design https://www.figma.com/design/ABC123/...\n"
+            "      figma-cli get-design --file-key ABC123 --node-id 1:2"
+        )
 
     # 尝试从 URL 解析
     file_key, parsed_node = parse_figma_url(url_or_key)
 
     # 如果解析出的是 node_id（格式如 1:2），需要从 args 中获取 file_key
     if re.match(r"^\d+:\d+$", file_key) or re.match(r"^\d+-\d+$", file_key):
-        # 这是 node_id，不是 file_key
-        # 需要 URL 或 file-key 参数
-        file_key_arg = getattr(args, "file_key", None)
         if file_key_arg:
             node_id = file_key.replace("-", ":")
             return file_key_arg, node_id
@@ -1270,7 +1279,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- get-design ---
     get_design = subparsers.add_parser("get-design", help="获取设计上下文（节点树、样式）")
-    get_design.add_argument("url", help="Figma 文件 URL 或 file_key")
+    get_design.add_argument("url", nargs="?", help="Figma 文件 URL 或 file_key（当使用 --file-key 时可省略）")
     get_design.add_argument("--node-id", help="指定节点 ID (如 1:2)，覆盖 URL 中的 node-id")
     get_design.add_argument("--file-key", help="直接指定 file_key（当 url 参数为 node_id 时使用）")
     get_design.add_argument("--client-languages", nargs="+", help="目标语言 (如 python typescript)")
@@ -1281,7 +1290,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- get-screenshot ---
     get_screenshot = subparsers.add_parser("get-screenshot", help="截取指定节点")
-    get_screenshot.add_argument("url", help="Figma 文件 URL、file_key 或 node_id (如 1:2)")
+    get_screenshot.add_argument("url", nargs="?", help="Figma 文件 URL、file_key 或 node_id（当使用 --file-key + --node-id 时可省略）")
     get_screenshot.add_argument("--node-id", help="指定节点 ID，覆盖 URL 中的 node-id")
     get_screenshot.add_argument("--file-key", help="直接指定 file_key")
     get_screenshot.add_argument("--client-languages", nargs="+", help="目标语言")
@@ -1293,7 +1302,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- get-metadata ---
     get_metadata = subparsers.add_parser("get-metadata", help="获取文件/页面元数据")
-    get_metadata.add_argument("url", help="Figma 文件 URL 或 file_key")
+    get_metadata.add_argument("url", nargs="?", help="Figma 文件 URL 或 file_key（当使用 --file-key 时可省略）")
     get_metadata.add_argument("--node-id", help="指定节点 ID")
     get_metadata.add_argument("--file-key", help="直接指定 file_key")
     get_metadata.add_argument("--client-languages", nargs="+", help="目标语言")
@@ -1304,7 +1313,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- get-variable-defs ---
     get_variable_defs = subparsers.add_parser("get-variable-defs", help="获取设计变量/令牌")
-    get_variable_defs.add_argument("url", help="Figma 文件 URL 或 file_key")
+    get_variable_defs.add_argument("url", nargs="?", help="Figma 文件 URL 或 file_key（当使用 --file-key 时可省略）")
     get_variable_defs.add_argument("--node-id", help="指定节点 ID")
     get_variable_defs.add_argument("--file-key", help="直接指定 file_key")
     get_variable_defs.add_argument("--client-languages", nargs="+", help="目标语言")
@@ -1337,7 +1346,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return int(args.func(args))
     except ToolError as exc:
-        print(f"{APP_NAME}: {exc}", file=sys.stderr)
+        msg = f"{APP_NAME}: {exc}"
+        if not getattr(args, "debug", False):
+            msg += "\n提示: 添加 --debug 参数可查看详细的 HTTP 请求/响应信息"
+        print(msg, file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print(f"{APP_NAME}: 中断", file=sys.stderr)
