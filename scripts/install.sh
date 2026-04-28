@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_URL="https://github.com/hzy9738/figma-mcp-skill.git"
 SKILL_DST_DIR="${HOME}/.agent/skills/figma"
 LOCAL_BIN_DIR="${HOME}/.local/bin"
-WRAPPER_PATH="${LOCAL_BIN_DIR}/figma"
+WRAPPER_PATH="${LOCAL_BIN_DIR}/figma-cli"
 UNAME_S="$(uname -s)"
 
 case "${UNAME_S}" in
@@ -58,7 +58,7 @@ else
 fi
 
 # 创建 wrapper 脚本（不依赖 pip install）
-echo "安装 figma CLI ..."
+echo "安装 figma-cli ..."
 mkdir -p "${LOCAL_BIN_DIR}"
 cat > "${WRAPPER_PATH}" <<WRAPPER_EOF
 #!/usr/bin/env bash
@@ -86,5 +86,5 @@ echo
 echo "Figma CLI 已安装到: ${SKILL_DST_DIR}"
 echo "命令: ${WRAPPER_PATH}"
 echo "试试:"
-echo "  figma --help"
-echo "  figma self-check"
+echo "  figma-cli --help"
+echo "  figma-cli self-check"

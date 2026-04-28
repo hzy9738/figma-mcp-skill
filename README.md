@@ -10,32 +10,32 @@ Shell-first 的 Figma 设计稿到代码桥梁。通过 `figma` CLI 命令调用
 curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 # 或 pip 安装
-pip install figma-cli
+pip install figma-cli 
 ```
 
 ## 使用
 
 ```bash
 # 查看状态
-figma status
+figma-cli status
 
 # 环境诊断
-figma self-check
+figma-cli self-check
 
 # 获取设计上下文
-figma get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2"
+figma-cli get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2"
 
 # 截取节点截图
-figma get-screenshot "1:2" --file-key ABC123
+figma-cli get-screenshot "1:2" --file-key ABC123
 
 # 获取设计变量
-figma get-variable-defs "https://www.figma.com/design/ABC123/MyApp"
+figma-cli get-variable-defs "https://www.figma.com/design/ABC123/MyApp"
 
 # 搜索组件
-figma search "button"
+figma-cli search "button"
 
 # 清除缓存
-figma refresh
+figma-cli refresh
 ```
 
 ## 后端

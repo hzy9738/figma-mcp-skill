@@ -10,14 +10,14 @@ description: Use the Figma MCP server to fetch design context, screenshots, vari
 ## 快速开始
 
 ```bash
-figma status                          # 连接状态与缓存
-figma self-check                      # 环境诊断
-figma get-design <url>                # 设计上下文（节点树、样式）
-figma get-screenshot <node-id>       # 节点截图
-figma get-metadata <url>             # 文件/页面元数据
-figma get-variable-defs <url>        # 设计变量/令牌
-figma search <query>                 # 搜索组件/样式
-figma refresh                        # 清除缓存
+figma-cli status                          # 连接状态与缓存
+figma-cli self-check                      # 环境诊断
+figma-cli get-design <url>                # 设计上下文（节点树、样式）
+figma-cli get-screenshot <node-id>       # 节点截图
+figma-cli get-metadata <url>             # 文件/页面元数据
+figma-cli get-variable-defs <url>        # 设计变量/令牌
+figma-cli search <query>                 # 搜索组件/样式
+figma-cli refresh                        # 清除缓存
 ```
 
 ## 工作流
@@ -26,20 +26,20 @@ figma refresh                        # 清除缓存
 
 ```bash
 # 获取设计稿完整上下文
-figma get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2"
+figma-cli get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2"
 
 # 截取特定组件截图查看
-figma get-screenshot "1:2" --file-key ABC123
+figma-cli get-screenshot "1:2" --file-key ABC123
 
 # 查看设计令牌/变量
-figma get-variable-defs "https://www.figma.com/design/ABC123/MyApp"
+figma-cli get-variable-defs "https://www.figma.com/design/ABC123/MyApp"
 ```
 
 ### 2. 设计到代码
 
 ```bash
 # 获取针对目标技术栈的设计上下文
-figma get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2" \
+figma-cli get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2" \
   --client-languages typescript \
   --client-frameworks react
 ```
@@ -47,7 +47,7 @@ figma get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2" \
 ### 3. 检查环境
 
 ```bash
-figma self-check
+figma-cli self-check
 ```
 
 ## 后端选择
@@ -61,7 +61,7 @@ figma self-check
 # 使用远程 MCP
 export FIGMA_BACKEND=remote
 export FIGMA_API_KEY=figd_xxxxx
-figma status
+figma-cli status
 ```
 
 CLI 默认自动检测可用后端（`FIGMA_BACKEND=auto`）。
@@ -70,7 +70,7 @@ CLI 默认自动检测可用后端（`FIGMA_BACKEND=auto`）。
 
 - 设计数据缓存在 `<project>/.figma/<file-key>/` 下
 - 重复请求同一文件自动使用缓存
-- `figma refresh` 强制清除缓存
+- `figma-cli refresh` 强制清除缓存
 
 ## 环境变量
 
@@ -89,7 +89,7 @@ CLI 默认自动检测可用后端（`FIGMA_BACKEND=auto`）。
 curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 # 或手动安装
-pip install figma-cli
+pip install figma-cli 
 ```
 
 迁移到另一台机器：

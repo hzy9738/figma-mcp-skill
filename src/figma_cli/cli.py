@@ -36,7 +36,7 @@ except ImportError:
 # 常量
 # ---------------------------------------------------------------------------
 
-APP_NAME = "figma"
+APP_NAME = "figma-cli"
 VERSION = "0.1.0"
 
 CACHE_DIRNAME = ".figma"
