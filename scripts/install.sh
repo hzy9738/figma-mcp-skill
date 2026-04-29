@@ -18,9 +18,9 @@ WRAPPER_PATH="${LOCAL_BIN_DIR}/figma-cli"
 UNAME_S="$(uname -s)"
 
 case "${UNAME_S}" in
-  Darwin|Linux) ;;
+  Darwin|Linux|MINGW*|MSYS*|CYGWIN*) ;;
   *)
-    echo "不支持的平台: ${UNAME_S}。需要 macOS 或 Linux。" >&2
+    echo "不支持的平台: ${UNAME_S}。需要 macOS / Linux / Windows Git Bash。" >&2
     exit 1
     ;;
 esac
