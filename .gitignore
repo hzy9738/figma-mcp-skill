@@ -1,7 +1,5 @@
-__pycache__/
-*.pyc
-*.egg-info/
-dist/
+node_modules/
 .figma/
 .DS_Store
 .agent/
+dist/

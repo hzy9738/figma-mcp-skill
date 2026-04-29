@@ -1,7 +1,7 @@
 # Figma MCP Skill
 
 Shell-first 的 Figma 设计稿到代码桥梁。通过 `figma` CLI 命令调用 Figma MCP server，
-无需配置 MCP 协议，Agent 直接通过 shell 调用。
+无需配置 MCP 协议，Agent 直接通过 shell 调用。**零外部依赖，仅需 Node.js ≥ 19。**
 
 ## 安装
 
@@ -9,8 +9,8 @@ Shell-first 的 Figma 设计稿到代码桥梁。通过 `figma` CLI 命令调用
 # 一行安装
 curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
-# 或 pip 安装
-pip install figma-cli 
+# 或 npm 安装
+npm install -g figma-cli
 ```
 
 ## 使用
@@ -25,8 +25,11 @@ figma-cli self-check
 # 获取设计上下文
 figma-cli get-design "https://www.figma.com/design/ABC123/MyApp?node-id=1-2"
 
-# 截取节点截图
+# 截取节点截图（自动保存为 PNG）
 figma-cli get-screenshot "1:2" --file-key ABC123
+
+# 截图导出到指定路径
+figma-cli get-screenshot "1:2" --file-key ABC123 -o ./screenshot.png
 
 # 获取设计变量
 figma-cli get-variable-defs "https://www.figma.com/design/ABC123/MyApp"
@@ -58,12 +61,20 @@ export FIGMA_API_KEY=figd_xxxxx
 - `FIGMA_API_KEY` — Figma Personal Access Token
 - `FIGMA_OAUTH_TOKEN` — Figma OAuth Bearer Token
 - `FIGMA_BACKEND` — 后端选择: auto (默认), desktop, remote
+- `FIGMA_MCP_URL` — 自定义 MCP HTTP 端点
 - `FIGMA_MCP_BIN` — 自定义 MCP server 路径
 - `FIGMA_IMAGE_DIR` — 图片下载目录
 
 ## 开发
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest tests/
+# 直接运行
+node bin/figma-cli.js --help
+
+# 运行测试
+node --test tests/test.js
 ```
+
+## 要求
+
+- Node.js ≥ 19（零外部 npm 依赖，仅使用内置模块）

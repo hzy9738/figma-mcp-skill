@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Figma CLI 安装脚本
+# Figma CLI 安装脚本 (Node.js)
 # 用法: curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
 REPO_URL="https://github.com/hzy9738/figma-mcp-skill.git"
@@ -17,16 +17,23 @@ case "${UNAME_S}" in
     ;;
 esac
 
-# 探测 python3 命令（兼容只有 python 的系统）
-PYTHON_BIN=""
-for candidate in python3 python; do
+# 检查 Node.js >= 19
+NODE_BIN=""
+for candidate in node; do
   if command -v "${candidate}" >/dev/null 2>&1; then
-    PYTHON_BIN="${candidate}"
+    NODE_BIN="${candidate}"
     break
   fi
 done
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "错误: 未找到 python3 或 python，请先安装 Python ≥3.10" >&2
+if [[ -z "${NODE_BIN}" ]]; then
+  echo "错误: 未找到 Node.js，请先安装 Node.js ≥19" >&2
+  exit 1
+fi
+
+NODE_VERSION="$("${NODE_BIN}" --version | sed 's/^v//')"
+NODE_MAJOR="$(echo "${NODE_VERSION}" | cut -d. -f1)"
+if [[ "${NODE_MAJOR}" -lt 19 ]]; then
+  echo "错误: Node.js ≥19 必须，当前版本 ${NODE_VERSION}" >&2
   exit 1
 fi
 
@@ -57,32 +64,14 @@ else
   git clone --depth 1 "${REPO_URL}" "${SKILL_DST_DIR}"
 fi
 
-# 创建 wrapper 脚本
+# 创建 wrapper 脚本（零外部依赖，直接 node 运行）
 echo "安装 figma-cli ..."
 mkdir -p "${LOCAL_BIN_DIR}"
 cat > "${WRAPPER_PATH}" <<WRAPPER_EOF
 #!/usr/bin/env bash
-exec "${PYTHON_BIN}" "${SKILL_DST_DIR}/src/figma_cli/cli.py" "\$@"
+exec "${NODE_BIN}" "${SKILL_DST_DIR}/bin/figma-cli.js" "\$@"
 WRAPPER_EOF
 chmod +x "${WRAPPER_PATH}"
-
-# 安装 httpx（remote/local MCP 需要）
-echo "安装依赖 httpx ..."
-PIP_BIN=""
-for candidate in pip3 pip; do
-  if command -v "${candidate}" >/dev/null 2>&1; then
-    PIP_BIN="${candidate}"
-    break
-  fi
-done
-if [[ -n "${PIP_BIN}" ]]; then
-  "${PIP_BIN}" install httpx --quiet 2>/dev/null || \
-  "${PYTHON_BIN}" -m pip install httpx --quiet 2>/dev/null || \
-  "${PIP_BIN}" install httpx --break-system-packages --quiet 2>/dev/null || \
-  echo "  ⚠ httpx 安装失败（不影响 stdio 模式，remote 模式需手动安装: ${PIP_BIN} install httpx）"
-else
-  echo "  ⚠ 未找到 pip，httpx 需手动安装"
-fi
 
 # 确保 PATH 中包含 ~/.local/bin
 SHELL_NAME="$(basename "${SHELL:-bash}")"

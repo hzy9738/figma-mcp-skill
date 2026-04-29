@@ -89,12 +89,14 @@ figma-cli status
 
 ## 安装
 
+要求 Node.js ≥ 19（零外部依赖）。
+
 ```bash
 # curl 一行安装
 curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
-# 或手动安装
-pip install figma-cli 
+# 或 npm 全局安装
+npm install -g figma-cli
 ```
 
 迁移到另一台机器：
@@ -107,9 +109,10 @@ bash ~/.agents/skills/figma-cli/scripts/install.sh
 
 ### 「MCP server 连接断开」
 
-- 检查 Node.js 是否安装: `node --version`
+- 检查 Node.js 版本 ≥ 19: `node --version`
 - 检查 figma-developer-mcp 是否可用: `npx figma-developer-mcp --version`
 - 如果使用 remote 后端，检查 FIGMA_API_KEY 是否设置
+- 添加 `--debug` 查看详细的 HTTP 请求/响应信息
 
 ### 「无法解析 URL」
 
