@@ -7,9 +7,9 @@ import { CACHE_DIRNAME } from './utils.js';
 /** 查找项目缓存根目录：<project>/.figma/ */
 export function findCacheRoot() {
   try {
-    const top = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8' }).trim();
+    const top = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
     if (top) return resolve(top, CACHE_DIRNAME);
-  } catch { /* 非 git 仓库 */ }
+  } catch { /* 非 git 仓库，用当前目录 */ }
   return resolve(process.cwd(), CACHE_DIRNAME);
 }
 

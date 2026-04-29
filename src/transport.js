@@ -420,9 +420,10 @@ export class StdioTransport extends MCPTransport {
     if (!this._proc) {
       const cmd = this._buildCmd();
       if (this.debug) console.error(`[debug] 启动进程: ${cmd.join(' ')}`);
-      this._proc = spawn(cmd[0], cmd.slice(1), {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      // Windows 需要 shell: true 才能执行 .cmd/.bat 文件（如 npx）
+      const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
+      if (process.platform === 'win32') spawnOpts.shell = true;
+      this._proc = spawn(cmd[0], cmd.slice(1), spawnOpts);
 
       this._proc.on('error', (err) => {
         throw new ToolError(`无法启动 MCP server: ${err.message}`);

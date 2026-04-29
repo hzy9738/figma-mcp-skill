@@ -127,7 +127,13 @@ export function findNpxBin() {
   const cmd = process.platform === 'win32' ? 'where' : 'which';
   const r = spawnSync(cmd, ['npx'], { encoding: 'utf-8', shell: true });
   if (r.status === 0 && r.stdout.trim()) {
-    return r.stdout.trim().split('\n')[0].trim();
+    const lines = r.stdout.trim().split('\n');
+    // Windows 优先取 .cmd 版本（spawn 可直接执行）
+    if (process.platform === 'win32') {
+      const cmdLine = lines.find(l => l.trim().endsWith('.cmd'));
+      if (cmdLine) return cmdLine.trim();
+    }
+    return lines[0].trim();
   }
   throw new ToolError('未找到 npx，请安装 Node.js (https://nodejs.org)');
 }

@@ -126,7 +126,14 @@ async function commandSelfCheck(opts, _positional, { debug, backend, localMcpAva
     npx_path: (() => {
       try {
         const cmd = process.platform === 'win32' ? 'where' : 'which';
-        return execSync(`${cmd} npx`, { encoding: 'utf-8' }).trim().split('\n')[0];
+        const output = execSync(`${cmd} npx`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+        if (!output) return null;
+        const lines = output.split('\n');
+        if (process.platform === 'win32') {
+          const cmdLine = lines.find(l => l.trim().endsWith('.cmd'));
+          if (cmdLine) return cmdLine.trim();
+        }
+        return lines[0].trim();
       } catch { return null; }
     })(),
     npx_available: isNpxAvailable(),
