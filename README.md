@@ -5,13 +5,24 @@ Shell-first 的 Figma 设计稿到代码桥梁。通过 `figma` CLI 命令调用
 
 ## 安装
 
-```bash
-# curl 一行安装（推荐）
-curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+**macOS / Linux（推荐）：**
 
-# 或通过 git 安装
+```bash
+curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+```
+
+**macOS / Linux / Git Bash：**
+
+```bash
 git clone https://github.com/hzy9738/figma-mcp-skill.git ~/.agents/skills/figma-cli
 npm install -g ~/.agents/skills/figma-cli
+```
+
+**Windows (PowerShell)：**
+
+```powershell
+git clone https://github.com/hzy9738/figma-mcp-skill.git $env:USERPROFILE\.agents\skills\figma-cli
+npm install -g $env:USERPROFILE\.agents\skills\figma-cli
 ```
 
 ## 使用

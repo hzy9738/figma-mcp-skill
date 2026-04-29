@@ -91,13 +91,17 @@ figma-cli status
 
 要求 Node.js ≥ 19（零外部依赖）。
 
-```bash
-# curl 一行安装
-curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+**macOS / Linux（推荐）：**
 
-# 或 git clone + npm link
-git clone https://github.com/hzy9738/figma-mcp-skill.git ~/.agents/skills/figma-cli
-npm install -g ~/.agents/skills/figma-cli
+```bash
+curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell)：**
+
+```powershell
+git clone https://github.com/hzy9738/figma-mcp-skill.git $env:USERPROFILE\.agents\skills\figma-cli
+npm install -g $env:USERPROFILE\.agents\skills\figma-cli
 ```
 
 迁移到另一台机器：
