@@ -2,8 +2,16 @@
 set -euo pipefail
 # Figma CLI 安装脚本 (Node.js)
 # 用法: curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+#
+# 中国大陆可通过代理加速:
+#   curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+# 代理下载脚本后，git clone 也需要走代理，通过 FIGMA_REPO_URL 指定:
+#   export FIGMA_REPO_URL=https://gh-proxy.org/https://github.com/hzy9738/figma-mcp-skill.git
+#   curl -fsSL https://gh-proxy.org/... | bash
+# 或一行:
+#   FIGMA_REPO_URL=https://gh-proxy.org/https://github.com/hzy9738/figma-mcp-skill.git bash -c "$(curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh)"
 
-REPO_URL="https://github.com/hzy9738/figma-mcp-skill.git"
+REPO_URL="${FIGMA_REPO_URL:-https://github.com/hzy9738/figma-mcp-skill.git}"
 SKILL_DST_DIR="${HOME}/.agents/skills/figma-cli"
 LOCAL_BIN_DIR="${HOME}/.local/bin"
 WRAPPER_PATH="${LOCAL_BIN_DIR}/figma-cli"

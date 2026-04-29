@@ -62,6 +62,27 @@ figma-cli refresh
 | 本机 MCP | 默认 (http://127.0.0.1:3845/mcp) | 免费账户可用，无需 API key |
 | 远程云 | `FIGMA_MCP_URL=https://mcp.figma.com/mcp` + `FIGMA_API_KEY` | 有 Figma API key |
 
+### 无桌面端（仅远程 Figma）
+
+没装 Figma 桌面端时，需配置 API key 走远程云：
+
+```bash
+export FIGMA_API_KEY=figd_xxxxx
+export FIGMA_MCP_URL=https://mcp.figma.com/mcp
+figma-cli status
+```
+
+`FIGMA_MCP_URL` 一设，自动跳过 npx 检查，直接走远程 HTTP。
+
+### 中国大陆安装
+
+GitHub 访问受限时，通过代理安装：
+
+```bash
+export FIGMA_REPO_URL=https://gh-proxy.org/https://github.com/hzy9738/figma-mcp-skill.git
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+```
+
 ```bash
 # 远程云 MCP
 export FIGMA_MCP_URL=https://mcp.figma.com/mcp

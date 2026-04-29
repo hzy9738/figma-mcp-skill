@@ -72,25 +72,29 @@ export async function checkLocalMcp() {
 /** 解析 Figma MCP 后端模式 */
 export function resolveBackend(preferred, localMcpAvailable) {
   const backend = preferred || process.env[ENV_FIGMA_BACKEND] || 'auto';
+  const mcpUrl = process.env[ENV_FIGMA_MCP_URL] || '';
 
   if (backend === 'auto') {
     const hasCredentials = !!(process.env[ENV_FIGMA_API_KEY] || process.env[ENV_FIGMA_OAUTH_TOKEN]);
 
-    // 1. 本机 Figma Desktop MCP
+    // 1. 本机 Figma Desktop MCP（无需凭证）
     if (localMcpAvailable) return 'remote';
 
-    // 2. npx figma-developer-mcp
-    try {
-      if (hasCredentials) {
-        const r = spawnSync('npx', [DEFAULT_FIGMA_MCP_PACKAGE, '--version'], { timeout: 30000 });
-        if (r.status === 0) return 'desktop';
-      }
-    } catch { /* npx not found */ }
+    // 2. 用户显式配置了远程 MCP URL → 直接走远程，跳过 npx 检查
+    if (mcpUrl && hasCredentials) return 'remote';
 
-    // 3. 远程云 MCP
+    // 3. npx figma-developer-mcp
+    if (hasCredentials && isNpxAvailable()) {
+      try {
+        const r = spawnSync('npx', [DEFAULT_FIGMA_MCP_PACKAGE, '--version'], { timeout: 10000 });
+        if (r.status === 0) return 'desktop';
+      } catch { /* npx 执行失败 */ }
+    }
+
+    // 4. 有凭证但无桌面端、无 npx → 远程云 MCP
     if (hasCredentials) return 'remote';
 
-    // 4. 兜底
+    // 5. 兜底
     return 'desktop';
   }
 
