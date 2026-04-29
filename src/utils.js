@@ -111,14 +111,24 @@ export function backendDisplayName(backend, localMcpAvailable) {
   return backend;
 }
 
-/** 查找 npx 可执行文件 */
+/** 跨平台检测 npx 是否可用 */
+export function isNpxAvailable() {
+  const cmd = process.platform === 'win32' ? 'where' : 'which';
+  try {
+    execSync(`${cmd} npx`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 查找 npx 可执行文件路径 */
 export function findNpxBin() {
-  // 使用 which/where 查找 npx（Node.js 没有内置 which，用 spawnSync）
-  const r = spawnSync('which', ['npx'], { encoding: 'utf-8' });
-  if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
-  // Windows fallback
-  const r2 = spawnSync('where', ['npx'], { encoding: 'utf-8', shell: true });
-  if (r2.status === 0 && r2.stdout.trim()) return r2.stdout.trim().split('\n')[0].trim();
+  const cmd = process.platform === 'win32' ? 'where' : 'which';
+  const r = spawnSync(cmd, ['npx'], { encoding: 'utf-8', shell: true });
+  if (r.status === 0 && r.stdout.trim()) {
+    return r.stdout.trim().split('\n')[0].trim();
+  }
   throw new ToolError('未找到 npx，请安装 Node.js (https://nodejs.org)');
 }
 

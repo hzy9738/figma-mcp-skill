@@ -7,7 +7,7 @@ import {
   ENV_FIGMA_API_KEY, ENV_FIGMA_OAUTH_TOKEN, ENV_FIGMA_MCP_URL, ENV_FIGMA_MCP_BIN,
   ENV_FIGMA_IMAGE_DIR, DEFAULT_MCP_URL,
   ToolError, formatJson, printOrJson, extractTextContent, saveImagesFromResult,
-  checkLocalMcp, resolveBackend, backendDisplayName,
+  checkLocalMcp, resolveBackend, backendDisplayName, isNpxAvailable,
   parseGlobalArgs, parseCmdArgs, resolveFileAndNode,
 } from './utils.js';
 import { CacheManager, findCacheRoot } from './cache.js';
@@ -67,8 +67,7 @@ async function commandStatus(opts, _positional, { debug, backend, localMcpAvaila
     mcp_url: process.env[ENV_FIGMA_MCP_URL] || DEFAULT_MCP_URL,
     figma_api_key_set: !!process.env[ENV_FIGMA_API_KEY],
     figma_oauth_token_set: !!process.env[ENV_FIGMA_OAUTH_TOKEN],
-    npx_available: (() => { try { execSync('which npx'); return true; } catch { return false; } })(),
-    httpx_available: false, // JS 版本，httpx 不适用
+    npx_available: isNpxAvailable(),
     figma_mcp_bin: process.env[ENV_FIGMA_MCP_BIN] || 'default',
     image_dir: process.env[ENV_FIGMA_IMAGE_DIR] || process.cwd(),
     cache: cache.cacheInfo(),
@@ -124,8 +123,13 @@ async function commandSelfCheck(opts, _positional, { debug, backend, localMcpAva
     backend: displayBackend,
     backend_raw: backend,
     mcp_url: process.env[ENV_FIGMA_MCP_URL] || DEFAULT_MCP_URL,
-    npx_path: (() => { try { return execSync('which npx', { encoding: 'utf-8' }).trim(); } catch { return null; } })(),
-    npx_available: (() => { try { execSync('which npx'); return true; } catch { return false; } })(),
+    npx_path: (() => {
+      try {
+        const cmd = process.platform === 'win32' ? 'where' : 'which';
+        return execSync(`${cmd} npx`, { encoding: 'utf-8' }).trim().split('\n')[0];
+      } catch { return null; }
+    })(),
+    npx_available: isNpxAvailable(),
     figma_api_key_set: !!process.env[ENV_FIGMA_API_KEY],
     figma_oauth_token_set: !!process.env[ENV_FIGMA_OAUTH_TOKEN],
     figma_mcp_bin: process.env[ENV_FIGMA_MCP_BIN] || 'default',
