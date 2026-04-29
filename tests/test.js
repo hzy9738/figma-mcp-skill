@@ -104,6 +104,20 @@ test('parseGlobalArgs - --backend + --debug', () => {
   assert.deepEqual(g.cmdArgs, ['--json']);
 });
 
+test('parseGlobalArgs - 命令后 --debug', () => {
+  const g = utils.parseGlobalArgs(['status', '--debug', '--json']);
+  assert.equal(g.command, 'status');
+  assert.equal(g.debug, true);
+  assert.deepEqual(g.cmdArgs, ['--json']);
+});
+
+test('parseGlobalArgs - 命令后 --backend', () => {
+  const g = utils.parseGlobalArgs(['get-design', '--backend', 'remote', 'ABC123']);
+  assert.equal(g.command, 'get-design');
+  assert.equal(g.backend, 'remote');
+  assert.deepEqual(g.cmdArgs, ['ABC123']);
+});
+
 test('parseCmdArgs - boolean + string + positional', () => {
   const { opts, positional } = utils.parseCmdArgs(
     ['--json', '--node-id', '1:2', 'ABC123'],

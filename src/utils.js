@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 // ---------------------------------------------------------------------------
 
 export const APP_NAME = 'figma-cli';
-export const VERSION = '0.2.1';
+export const VERSION = '0.2.2';
 
 export const CACHE_DIRNAME = '.figma';
 export const DEFAULT_FIGMA_MCP_PACKAGE = 'figma-developer-mcp';
@@ -80,10 +80,7 @@ export function resolveBackend(preferred, localMcpAvailable) {
     // 1. 本机 Figma Desktop MCP（无需凭证）
     if (localMcpAvailable) return 'remote';
 
-    // 2. 用户显式配置了远程 MCP URL → 直接走远程，跳过 npx 检查
-    if (mcpUrl && hasCredentials) return 'remote';
-
-    // 3. npx figma-developer-mcp
+    // 2. npx figma-developer-mcp（PAT / OAuth 均可，优先于远程 HTTP）
     if (hasCredentials && isNpxAvailable()) {
       try {
         const r = spawnSync('npx', [DEFAULT_FIGMA_MCP_PACKAGE, '--version'], { timeout: 10000 });
@@ -91,10 +88,10 @@ export function resolveBackend(preferred, localMcpAvailable) {
       } catch { /* npx 执行失败 */ }
     }
 
-    // 4. 有凭证但无桌面端、无 npx → 远程云 MCP
-    if (hasCredentials) return 'remote';
+    // 3. 远程 HTTP MCP（仅 OAuth token 可用，PAT 不兼容 mcp.figma.com）
+    if (mcpUrl && hasCredentials) return 'remote';
 
-    // 5. 兜底
+    // 4. 兜底
     return 'desktop';
   }
 
@@ -212,7 +209,24 @@ export function parseGlobalArgs(argv) {
 
   const rest = argv.slice(i);
   const command = rest[0] || 'status';
-  const cmdArgs = rest.slice(1);
+  const rawCmdArgs = rest.slice(1);
+
+  // 命令后也可能出现全局选项（如 figma-cli status --debug），二次扫描取出
+  const cmdArgs = [];
+  for (let j = 0; j < rawCmdArgs.length; j++) {
+    const arg = rawCmdArgs[j];
+    if (arg === '--backend' || arg === '-b') {
+      global.backend = rawCmdArgs[++j];
+    } else if (arg === '--debug') {
+      global.debug = true;
+    } else if (arg === '--version' || arg === '-V') {
+      global.version = true;
+    } else if (arg === '--help' || arg === '-h') {
+      global.help = true;
+    } else {
+      cmdArgs.push(arg);
+    }
+  }
 
   return { ...global, command, cmdArgs };
 }

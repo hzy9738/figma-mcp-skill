@@ -64,15 +64,20 @@ figma-cli refresh
 
 ### 无桌面端（仅远程 Figma）
 
-没装 Figma 桌面端时，需配置 API key 走远程云：
+没装 Figma 桌面端时，设置 API key 后自动通过 npx stdio 连接：
 
 ```bash
 export FIGMA_API_KEY=figd_xxxxx
-export FIGMA_MCP_URL=https://mcp.figma.com/mcp
 figma-cli status
 ```
 
-`FIGMA_MCP_URL` 一设，自动跳过 npx 检查，直接走远程 HTTP。
+也可用 OAuth token 走远程 HTTP 端点：
+
+```bash
+export FIGMA_OAUTH_TOKEN=figx_xxxxx
+export FIGMA_MCP_URL=https://mcp.figma.com/mcp
+figma-cli status
+```
 
 ### 中国大陆安装
 

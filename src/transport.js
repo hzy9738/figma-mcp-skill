@@ -175,8 +175,9 @@ export class HttpTransport extends MCPTransport {
     const h = {};
     const apiKey = process.env[ENV_FIGMA_API_KEY];
     const oauthToken = process.env[ENV_FIGMA_OAUTH_TOKEN];
-    if (apiKey) h['X-Figma-Token'] = apiKey;
-    if (oauthToken) h['Authorization'] = `Bearer ${oauthToken}`;
+    // 远程 MCP (mcp.figma.com) 统一使用 Authorization: Bearer，不区分 PAT / OAuth
+    if (apiKey) h['Authorization'] = `Bearer ${apiKey}`;
+    else if (oauthToken) h['Authorization'] = `Bearer ${oauthToken}`;
     return h;
   }
 
