@@ -95,8 +95,9 @@ figma-cli status
 # curl 一行安装
 curl -fsSL https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 
-# 或 npm 全局安装
-npm install -g figma-cli
+# 或 git clone + npm link
+git clone https://github.com/hzy9738/figma-mcp-skill.git ~/.agents/skills/figma-cli
+npm install -g ~/.agents/skills/figma-cli
 ```
 
 迁移到另一台机器：
