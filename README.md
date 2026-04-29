@@ -81,17 +81,22 @@ figma-cli status
 
 ### 中国大陆安装
 
-GitHub 访问受限时，通过代理安装：
+GitHub 访问受限时，安装脚本内置了备用代理链（git clone 失败自动换 curl tarball → gitclone.com 兜底），直接运行即可：
 
 ```bash
-export FIGMA_REPO_URL=https://gh-proxy.org/https://github.com/hzy9738/figma-mcp-skill.git
-curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 ```
 
+如果 `ghproxy.net` 也不可用，手动指定一个能通的 git 镜像：
+
 ```bash
-# 远程云 MCP
-export FIGMA_MCP_URL=https://mcp.figma.com/mcp
-export FIGMA_API_KEY=figd_xxxxx
+# gitclone.com 镜像（测试可用）
+export FIGMA_REPO_URL=https://gitclone.com/github.com/hzy9738/figma-mcp-skill.git
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
+
+# 也可用其他镜像，格式一致
+export FIGMA_REPO_URL=https://ghproxy.net/https://github.com/hzy9738/figma-mcp-skill.git
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/hzy9738/figma-mcp-skill/main/scripts/install.sh | bash
 ```
 
 ## 环境变量

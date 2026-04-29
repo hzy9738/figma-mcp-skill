@@ -67,9 +67,60 @@ if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ -
   fi
 else
   echo "从 GitHub 克隆: ${REPO_URL}"
-  mkdir -p "$(dirname "${SKILL_DST_DIR}")"
-  rm -rf "${SKILL_DST_DIR}"
-  git clone --depth 1 "${REPO_URL}" "${SKILL_DST_DIR}"
+
+  # git clone 主逻辑：失败时依次尝试备用代理
+  _clone_or_extract() {
+    local url="$1"
+    local dst="$2"
+    mkdir -p "$(dirname "${dst}")"
+    rm -rf "${dst}"
+
+    # 1) 尝试 git clone
+    if git clone --depth 1 "${url}" "${dst}" 2>/dev/null; then
+      return 0
+    fi
+    echo "  git clone 失败，尝试 curl 下载 ..."
+
+    # 2) 从代理 URL 还原原始 GitHub URL，构造 tarball 地址
+    local gh_url="${url}"
+    # 匹配 https://<proxy>/https://github.com/... 提取原始 URL
+    if [[ "${url}" =~ https?://[^/]+/https?://github\.com/(.+)\.git$ ]]; then
+      gh_url="https://github.com/${BASH_REMATCH[1]}"
+    fi
+    # 匹配 https://gitclone.com/github.com/... 提取原始 URL
+    if [[ "${url}" =~ https?://gitclone\.com/github\.com/(.+)\.git$ ]]; then
+      gh_url="https://github.com/${BASH_REMATCH[1]}"
+    fi
+
+    local tarball_url="${gh_url%.git}/archive/refs/heads/main.tar.gz"
+    echo "  尝试 tarball: ${tarball_url}"
+
+    if curl -fsSL --max-time 60 "${tarball_url}" | tar xz -C "$(dirname "${dst}")" 2>/dev/null; then
+      # 解压后目录名是 <repo>-main，重命名为目标名
+      local extracted="$(dirname "${dst}")/$(basename "${gh_url%.git}")-main"
+      if [[ -d "${extracted}" ]] && [[ "${extracted}" != "${dst}" ]]; then
+        mv "${extracted}" "${dst}"
+      fi
+      return 0
+    fi
+
+    # 3) 最后尝试通过 gitclone.com 兜底
+    local basename="${gh_url#https://github.com/}"
+    basename="${basename%.git}"
+    echo "  尝试 gitclone.com 兜底: gitclone.com/github.com/${basename}.git"
+    if git clone --depth 1 "https://gitclone.com/github.com/${basename}.git" "${dst}" 2>/dev/null; then
+      return 0
+    fi
+
+    return 1
+  }
+
+  if ! _clone_or_extract "${REPO_URL}" "${SKILL_DST_DIR}"; then
+    echo "错误: 无法下载仓库，请检查网络连接或尝试其他代理。" >&2
+    echo "备选方案: 手动下载 https://github.com/hzy9738/figma-mcp-skill/archive/refs/heads/main.zip" >&2
+    echo "  解压到 ${SKILL_DST_DIR} 后重新运行本脚本。" >&2
+    exit 1
+  fi
 fi
 
 # 创建 wrapper 脚本（零外部依赖，直接 node 运行）
