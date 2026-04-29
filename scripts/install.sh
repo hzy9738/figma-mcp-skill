@@ -52,10 +52,18 @@ for required_cmd in bash git; do
   fi
 done
 
-# 判断是管道执行还是本地脚本执行
+# 判断是本地完整仓库执行还是仅脚本文件
+_local_repo=0
 if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ -f "${BASH_SOURCE[0]}" ]]; then
   _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   SKILL_SRC_DIR="$(cd "${_script_dir}/.." && pwd)"
+  # 只有确认仓库源文件存在时才走本地安装（bin/figma-cli.js 是仓库标志文件）
+  if [[ -f "${SKILL_SRC_DIR}/bin/figma-cli.js" ]]; then
+    _local_repo=1
+  fi
+fi
+
+if [[ "${_local_repo}" -eq 1 ]]; then
   echo "从本地源安装: ${SKILL_SRC_DIR}"
 
   mkdir -p "$(dirname "${SKILL_DST_DIR}")"
