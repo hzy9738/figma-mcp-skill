@@ -1,6 +1,6 @@
 {
   "name": "figma-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Figma MCP CLI — shell-first Figma design-to-code bridge (Node.js)",
   "type": "module",
   "bin": {

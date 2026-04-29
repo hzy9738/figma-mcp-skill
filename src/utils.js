@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 // ---------------------------------------------------------------------------
 
 export const APP_NAME = 'figma-cli';
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 export const CACHE_DIRNAME = '.figma';
 export const DEFAULT_FIGMA_MCP_PACKAGE = 'figma-developer-mcp';
